@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/database/" />
+  <Folder Name="/src/database/sql/">
+    <File Path="tenants_bootstrap.sql" />
+  </Folder>
+  <Folder Name="/src/devops/" />
+  <Folder Name="/src/devops/pipelines/" />
+  <Folder Name="/src/devops/scripts/" />
+  <Folder Name="/src/devops/terraform/" />
+  <Folder Name="/src/tests/">
+    <Project Path="TenantPortal.IntegrationTests/TenantPortal.IntegrationTests.csproj" />
+    <Project Path="TenantPortal.UnitTests/TenantPortal.UnitTests.csproj" />
+  </Folder>
+  <Folder Name="/src/webapi/">
+    <Project Path="TenantPortal.API/TenantPortal.API.csproj" />
+    <Project Path="TenantPortal.Application/TenantPortal.Application.csproj" />
+    <Project Path="TenantPortal.Domain/TenantPortal.Domain.csproj" />
+    <Project Path="TenantPortal.Infrastructure/TenantPortal.Infrastructure.csproj" />
+    <Project Path="TenantPortal.Shared/TenantPortal.Shared.csproj" />
+  </Folder>
+  <Folder Name="/src/website/" />
+</Solution>

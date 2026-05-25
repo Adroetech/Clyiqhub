@@ -1,0 +1,186 @@
+.login-root {
+  min-height: 100vh;
+  display: flex;
+  background: #ffffff;
+}
+
+
+.login-left,
+.login-right {
+  flex: 1 1 0;     /* both sides can grow/shrink equally */
+  min-width: 0;    /* important so flex children can shrink */
+}
+
+
+.login-left {
+  flex: 1;
+  background: #f5f9ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid #e6f0ff;
+}
+
+
+.login-illustration-img {
+  width: min(520px, 90%);   /* responsive width */
+  height: auto;             /* keeps aspect ratio */
+  max-height: 80vh;         /* prevents overflow */
+  object-fit: contain;
+}
+
+
+
+.login-illustration {
+  width: min(520px, 90%);
+  aspect-ratio: 1 / 1;    /* keeps it square-ish */
+  max-height: 80vh;
+  background: url("/login-illustration.png") center/contain no-repeat;
+}
+
+
+/* Grey filled input style like mock */
+.clyiq-input {
+  height: 44px;
+  border-radius: 8px !important;
+  background: #dbe7ff !important;      /* soft blue-grey */
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+
+.clyiq-input:hover {
+  border-color: #aac4ff !important;
+}
+
+.clyiq-input:focus,
+.clyiq-input-focused {
+  border-color: #1677ff !important;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.18) !important;
+}
+
+/* Input text + placeholder tone */
+.clyiq-input input {
+  background: transparent !important;
+}
+
+.clyiq-input input::placeholder {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* Make password field wrapper match too */
+.clyiq-input .ant-input {
+  background: transparent !important;
+}
+
+
+/* tighter spacing like mock */
+.ant-form-item {
+  margin-bottom: 14px;
+}
+
+
+
+.login-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+/* Mobile / small screens: stack or hide illustration */
+@media (max-width: 900px) {
+  .login-root {
+    flex-direction: column;
+  }
+  .login-left {
+    border-right: none;
+    border-bottom: 1px solid #e6f0ff;
+  }
+  .login-illustration-img {
+    width: min(420px, 92%);
+    max-height: 40vh;
+  }
+}
+
+
+.login-card {
+  width: 420px;
+  max-width: 92%;
+}
+
+.login-brand {
+  color: #1677ff !important;
+  margin-bottom: 6px !important;
+  text-align: center;
+  font-weight: 600;
+}
+
+.login-welcome {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  text-align: center;
+  font-weight: 600;
+}
+
+.login-title {
+  color: #1677ff !important;
+  margin-top: 6px !important;
+  text-align: center;
+  font-weight: 700;
+}
+
+.login-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+
+
+
+
+.login-or {
+  margin: 16px 0;
+  text-align: center;
+  color: #888;
+  position: relative;
+}
+.login-or::before,
+.login-or::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 42%;
+  height: 1px;
+  background: #e5e5e5;
+}
+.login-or::before { left: 0; }
+.login-or::after { right: 0; }
+.login-or span {
+  background: #fff;
+  padding: 0 10px;
+}
+
+.login-social {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.login-social button {
+  width: 64px;
+}
+
+.login-footer {
+  margin-top: 40px;
+  text-align: center;
+  color: #999;
+  font-size: 12px;
+}
+
+.login-error {
+  margin-bottom: 12px;
+}
