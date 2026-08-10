@@ -15,7 +15,7 @@ namespace TenantPortal.Application.Interfaces
         Task MarkLoginSuccessAsync(Guid userId, CancellationToken ct);
         Task MarkLoginFailureAsync(Guid userId, bool lockout, TimeSpan? lockFor, CancellationToken ct);
 
-     
+        Task UpdatePasswordAsync(Guid userId, byte[] passwordHash, CancellationToken ct);
 
     }
 }

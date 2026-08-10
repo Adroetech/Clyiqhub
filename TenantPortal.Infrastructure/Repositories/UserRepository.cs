@@ -66,5 +66,19 @@ namespace TenantPortal.Infrastructure.Repositories
             if (lockout && lockFor.HasValue) u.LockedUntil = DateTime.UtcNow.Add(lockFor.Value);
             await _db.SaveChangesAsync(ct);
         }
+
+        public async Task UpdatePasswordAsync(Guid userId, byte[] passwordHash, CancellationToken ct)
+        {
+            var user = await _db.SysUserInfo.FirstOrDefaultAsync(x => x.UserId == userId, ct);
+
+            if (user == null)
+                return;
+
+            user.Password = passwordHash;
+            user.FailedLoginCount = 0;
+            user.LockedUntil = null;
+
+            await _db.SaveChangesAsync(ct);
+        }
     }
 }

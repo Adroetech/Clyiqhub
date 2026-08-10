@@ -11,6 +11,8 @@ namespace TenantPortal.Application.Interfaces.Repositories
         Task<PasswordResetToken?> FindActiveByTokenAsync(string token, CancellationToken ct);
         Task CreateAsync(Guid userId, string rawToken, DateTime expiresAtUtc, CancellationToken ct);
         Task MarkUsedAsync(Guid tokenId, CancellationToken ct);
+
+        Task RevokeActiveForUserAsync(Guid userId, CancellationToken ct);
     }
 
 }

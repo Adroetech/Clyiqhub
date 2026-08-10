@@ -7,6 +7,7 @@ using TenantPortal.Application.DTOs;
 using TenantPortal.Application.Interfaces;
 using TenantPortal.Application.Interfaces.Identity;
 using TenantPortal.Application.Interfaces.Repositories;
+using TenantPortal.Application.Interfaces.Services;
 
 namespace TenantPortal.Application.Services
 {
@@ -22,6 +23,8 @@ namespace TenantPortal.Application.Services
         private readonly int _refreshDays;
         private readonly int _lockThreshold = 5;
         private readonly IPasswordResetRepository _pwdReset;
+        private readonly IEmailSender _emailSender;
+        private readonly IConfiguration _cfg;
 
         // Role mapping (legacy -> canonical)
         private static readonly Dictionary<string, string> RoleMap = new(StringComparer.OrdinalIgnoreCase)
@@ -40,34 +43,124 @@ namespace TenantPortal.Application.Services
             ITokenService tokens,
             IAuthorizationRepository authz,
             IConfiguration cfg,
-            IPasswordResetRepository pwdReset)
+            IPasswordResetRepository pwdReset,
+            IEmailSender emailSender)
         {
             _users = users; _sessions = sessions; _invitations = invitations; _audit = audit;
-            _hasher = hasher; _tokens = tokens; _authz = authz; _pwdReset = pwdReset;
-            _refreshDays = int.TryParse(cfg["Jwt:RefreshDays"], out var d) ? d : 7;
+            _hasher = hasher; _tokens = tokens; _authz = authz; _pwdReset = pwdReset; _cfg = cfg;
+            _refreshDays = int.TryParse(cfg["Jwt:RefreshDays"], out var d) ? d : 7; _emailSender = emailSender;
         }
 
-        public async Task<(bool ok, string? errorCode)> ForgotPasswordAsync(string email, CancellationToken ct)
+        public async Task<(bool ok, string? errorCode)> ForgotPasswordAsync(
+    string email,
+    string? resetUrl,
+    CancellationToken ct)
         {
-            var normalized = email.Trim().ToLowerInvariant();
-            var user = await _users.FindByEmailAsync(normalized, ct);
+            var normalized = string.IsNullOrWhiteSpace(email)
+                ? string.Empty
+                : email.Trim().ToLowerInvariant();
 
-            // SECURITY BEST PRACTICE: do not reveal whether email exists.
-            // Always return OK so attackers cannot enumerate accounts.
-            if (user == null || user.IsDeleted)
+            if (string.IsNullOrWhiteSpace(normalized))
             {
-                await _audit.WriteAsync(null, normalized, "FORGOT_PASSWORD", null, null, "USER_NOT_FOUND", ct);
                 return (true, null);
             }
 
-            // Generate token (raw), store hash, expiry
-            var token = Guid.NewGuid().ToString("N");
-            var expires = DateTime.UtcNow.AddMinutes(30);
+            var user = await _users.FindByEmailAsync(normalized, ct);
 
+            // SECURITY: Never reveal whether the email exists.
+            if (user == null || user.IsDeleted)
+            {
+                await _audit.WriteAsync(
+                    null,
+                    normalized,
+                    "FORGOT_PASSWORD",
+                    null,
+                    null,
+                    "USER_NOT_FOUND",
+                    ct);
+
+                return (true, null);
+            }
+
+            var token = Guid.NewGuid().ToString("N");
+            var expires = DateTime.UtcNow.AddMinutes(15);
+
+            await _pwdReset.RevokeActiveForUserAsync(user.UserId, ct);
             await _pwdReset.CreateAsync(user.UserId, token, expires, ct);
 
-            // TODO: send email (later). For now log token for dev/testing:
-            await _audit.WriteAsync(user.UserId, user.Email, "FORGOT_PASSWORD", null, null, $"TOKEN:{token};EXP:{expires:o}", ct);
+            var configuredResetUrl = _cfg["Auth:ResetPasswordUrl"];
+
+            var resetLinkTemplate = !string.IsNullOrWhiteSpace(resetUrl)
+                ? resetUrl
+                : configuredResetUrl;
+
+            if (string.IsNullOrWhiteSpace(resetLinkTemplate))
+            {
+                await _audit.WriteAsync(
+                    user.UserId,
+                    user.Email,
+                    "FORGOT_PASSWORD_FAILED",
+                    null,
+                    null,
+                    "RESET_URL_NOT_CONFIGURED",
+                    ct);
+
+                return (false, "RESET_URL_NOT_CONFIGURED");
+            }
+
+            var resetLink = resetLinkTemplate.Contains("{token}", StringComparison.OrdinalIgnoreCase)
+                ? resetLinkTemplate.Replace("{token}", Uri.EscapeDataString(token))
+                : $"{resetLinkTemplate.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(token)}";
+
+            var subject = "Reset your Clyiq password";
+
+            var body =
+        $@"Hello,
+
+We received a request to reset your password.
+
+Please use the link below to reset your password:
+{resetLink}
+
+This link will expire in 15 minutes and can be used only once.
+
+If you did not request a password reset, you can ignore this email.
+
+Regards,
+Clyiq Team";
+
+            try
+            {
+                await _emailSender.SendAsync(
+                    user.Email,
+                    subject,
+                    body,
+                    user.UserId,
+                    user.TenantId,
+                    ct);
+
+                await _audit.WriteAsync(
+                    user.UserId,
+                    user.Email,
+                    "FORGOT_PASSWORD",
+                    null,
+                    null,
+                    $"RESET_EMAIL_SENT;EXP:{expires:o}",
+                    ct);
+            }
+            catch
+            {
+                await _audit.WriteAsync(
+                    user.UserId,
+                    user.Email,
+                    "FORGOT_PASSWORD_FAILED",
+                    null,
+                    null,
+                    "EMAIL_SEND_FAILED",
+                    ct);
+
+                return (false, "EMAIL_SEND_FAILED");
+            }
 
             return (true, null);
         }
@@ -205,31 +298,63 @@ namespace TenantPortal.Application.Services
      string newPassword,
      CancellationToken ct)
         {
-            // 1) Try invitation token flow first
+            if (string.IsNullOrWhiteSpace(token))
+                return (false, "TOKEN_REQUIRED");
+
+            if (string.IsNullOrWhiteSpace(newPassword))
+                return (false, "PASSWORD_REQUIRED");
+
+            // 1. Invitation token flow
             var invite = await _invitations.FindActiveByTokenAsync(token, ct);
             if (invite != null)
             {
                 var inviteUser = await _users.FindByIdAsync(invite.UserId, ct);
+
                 if (inviteUser == null || inviteUser.IsDeleted)
                     return (false, "USER_NOT_FOUND");
 
-                inviteUser.Password = _hasher.Hash(newPassword);
+                var passwordHash = _hasher.Hash(newPassword);
+
+                await _users.UpdatePasswordAsync(invite.UserId, passwordHash, ct);
                 await _invitations.MarkUsedAsync(invite.TokenId, ct);
+                await _sessions.RevokeAllForUserAsync(invite.UserId, ct);
+
+                await _audit.WriteAsync(
+                    invite.UserId,
+                    inviteUser.Email,
+                    "SET_PASSWORD_SUCCESS",
+                    null,
+                    null,
+                    "INVITATION_TOKEN",
+                    ct);
 
                 return (true, null);
             }
 
-            // 2) Try password reset token flow
+            // 2. Forgot password reset token flow
             var reset = await _pwdReset.FindActiveByTokenAsync(token, ct);
             if (reset == null)
                 return (false, "INVALID_OR_EXPIRED_TOKEN");
 
             var resetUser = await _users.FindByIdAsync(reset.UserId, ct);
+
             if (resetUser == null || resetUser.IsDeleted)
                 return (false, "USER_NOT_FOUND");
 
-            resetUser.Password = _hasher.Hash(newPassword);
+            var resetPasswordHash = _hasher.Hash(newPassword);
+
+            await _users.UpdatePasswordAsync(reset.UserId, resetPasswordHash, ct);
             await _pwdReset.MarkUsedAsync(reset.TokenId, ct);
+            await _sessions.RevokeAllForUserAsync(reset.UserId, ct);
+
+            await _audit.WriteAsync(
+                reset.UserId,
+                resetUser.Email,
+                "RESET_PASSWORD_SUCCESS",
+                null,
+                null,
+                "PASSWORD_RESET_TOKEN",
+                ct);
 
             return (true, null);
         }

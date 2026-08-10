@@ -9,7 +9,6 @@
     public record SetPasswordRequest(string Token, string NewPassword);
 
 
-    public record ForgotPasswordRequest(string Email);
     public record ForgotPasswordResponse(bool Ok);
 
 }
