@@ -40,5 +40,22 @@ namespace TenantPortal.Infrastructure.Repositories
             t.UsedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
         }
+
+        public async Task RevokeActiveForUserAsync(Guid userId, CancellationToken ct)
+        {
+            var tokens = await _db.PasswordResetTokens
+                .Where(x =>
+                    x.UserId == userId &&
+                    x.UsedAt == null &&
+                    x.ExpiresAt > DateTime.UtcNow)
+                .ToListAsync(ct);
+
+            foreach (var token in tokens)
+            {
+                token.UsedAt = DateTime.UtcNow;
+            }
+
+            await _db.SaveChangesAsync(ct);
+        }
     }
 }

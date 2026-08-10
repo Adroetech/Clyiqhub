@@ -54,5 +54,19 @@ namespace TenantPortal.Infrastructure.Repositories
             foreach (var s in sessions) s.RevokedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
         }
+
+        public async Task RevokeAllForUserAsync(Guid userId, CancellationToken ct)
+        {
+            var sessions = await _db.Sessions
+                .Where(s => s.UserId == userId && s.RevokedAt == null)
+                .ToListAsync(ct);
+
+            foreach (var session in sessions)
+            {
+                session.RevokedAt = DateTime.UtcNow;
+            }
+
+            await _db.SaveChangesAsync(ct);
+        }
     }
 }

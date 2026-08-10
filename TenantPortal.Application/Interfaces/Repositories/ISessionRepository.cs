@@ -11,5 +11,7 @@ namespace TenantPortal.Application.Interfaces
         Task RevokeAsync(Guid sessionId, CancellationToken ct);
 
         Task RevokeAllForTenantAsync(Guid tenantId, CancellationToken ct);
+
+        Task RevokeAllForUserAsync(Guid userId, CancellationToken ct);
     }
 }

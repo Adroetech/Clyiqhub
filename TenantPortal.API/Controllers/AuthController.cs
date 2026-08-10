@@ -25,7 +25,7 @@ namespace TenantPortal.API.Controllers
 
         [AllowAnonymous]
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
+        public async Task<IActionResult> Login([FromBody] Application.DTOs.LoginRequest request, CancellationToken ct)
         {
             var ua = Request.Headers["User-Agent"].ToString();
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -48,7 +48,7 @@ namespace TenantPortal.API.Controllers
 
         [AllowAnonymous]
         [HttpPost("refresh")]
-        public async Task<IActionResult> Refresh([FromBody] RefreshRequest req, CancellationToken ct)
+        public async Task<IActionResult> Refresh([FromBody] Application.DTOs.RefreshRequest req, CancellationToken ct)
         {
             var ua = Request.Headers["User-Agent"].ToString();
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -58,7 +58,7 @@ namespace TenantPortal.API.Controllers
 
         [Authorize]
         [HttpPost("logout")]
-        public async Task<IActionResult> Logout([FromBody] RefreshRequest req, CancellationToken ct)
+        public async Task<IActionResult> Logout([FromBody] Application.DTOs.RefreshRequest req, CancellationToken ct)
         {
             var ua = Request.Headers["User-Agent"].ToString();
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -74,17 +74,48 @@ namespace TenantPortal.API.Controllers
             return ok ? Ok(new { ok = true }) : Unauthorized(new { errorCode = code });
         }
 
+
         [AllowAnonymous]
-        [HttpPost("forgot-password")]
-        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest req, CancellationToken ct)
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword(
+    [FromBody] TenantPortal.Application.DTOs.ResetPasswordRequest req,
+    CancellationToken ct)
         {
-            var (ok, code) = await _auth.ForgotPasswordAsync(req.Email, ct);
-            return ok ? Ok(new { ok = true }) : BadRequest(new { errorCode = code });
+            var result = await _auth.SetPasswordAsync(req.Token, req.NewPassword, ct);
+
+            if (!result.ok)
+                return Unauthorized(new { errorCode = result.errorCode });
+
+            return Ok(new
+            {
+                ok = true,
+                message = "Password has been reset successfully."
+            });
         }
 
-       
+        [AllowAnonymous]
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword(
+     [FromBody] TenantPortal.Application.DTOs.ForgotPasswordRequest req,
+     CancellationToken ct)
+        {
+            var result = await _auth.ForgotPasswordAsync(req.Email, req.ResetUrl, ct);
 
-[AllowAnonymous]
+            // SECURITY: Always avoid email enumeration.
+            // If email does not exist, AuthService still returns ok = true.
+            if (!result.ok)
+                return BadRequest(new { errorCode = result.errorCode });
+
+            return Ok(new
+            {
+                ok = true,
+                message = "If an account exists, a reset link has been sent."
+            });
+        }
+
+
+
+        [AllowAnonymous]
     [ApiKeyAuth]
     [HttpPost("verify")]
     public async Task<IActionResult> Verify([FromBody] VerifyRequest request, CancellationToken ct)
