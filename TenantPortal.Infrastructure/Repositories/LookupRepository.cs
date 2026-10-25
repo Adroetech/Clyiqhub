@@ -114,6 +114,60 @@ namespace TenantPortal.Infrastructure.Repositories
                 .ToListAsync(ct);
         }
 
+        public async Task<IReadOnlyList<RegionDto>> GetRegionsAsync(CancellationToken ct)
+        {
+            return await _db.Regions.AsNoTracking()
+                .OrderBy(r => r.Name)
+                .Select(r => new RegionDto { Id = r.Id, Name = r.Name })
+                .ToListAsync(ct);
+        }
+
+        public async Task<RegionDto?> GetRegionForCountryAsync(Guid countryId, CancellationToken ct)
+        {
+            return await _db.Countries.AsNoTracking()
+                .Where(c => c.CountryId == countryId && c.RegionId != null)
+                .Select(c => new RegionDto { Id = c.RegionId!.Value, Name = c.Region!.Name })
+                .FirstOrDefaultAsync(ct);
+        }
+
+        public async Task<IReadOnlyList<PaymentTermDto>> GetPaymentTermsAsync(CancellationToken ct)
+        {
+            return await _db.PaymentTerms.AsNoTracking()
+                .Where(p => p.IsActive)
+                .OrderBy(p => p.Name)
+                .Select(p => new PaymentTermDto { Id = p.Id, Code = p.Code, Name = p.Name })
+                .ToListAsync(ct);
+        }
+
+        public async Task<IReadOnlyList<PriceListSkuDto>> GetPriceListSkusAsync(Guid? vendorId, CancellationToken ct)
+        {
+            var query = _db.PriceListItems.AsNoTracking().Where(p => p.Status == PriceListStatus.Active);
+
+            if (vendorId.HasValue)
+            {
+                var vendorName = await _db.Vendors.AsNoTracking()
+                    .Where(v => v.Id == vendorId.Value)
+                    .Select(v => v.Name)
+                    .FirstOrDefaultAsync(ct);
+
+                if (vendorName != null && Enum.TryParse<PriceListSegment>(vendorName, true, out var segment))
+                    query = query.Where(p => p.Segment == segment);
+            }
+
+            return await query
+                .OrderBy(p => p.Sku)
+                .Select(p => new PriceListSkuDto
+                {
+                    Id = p.Id,
+                    Sku = p.Sku,
+                    Description = p.Description,
+                    Category = p.Category.ToString(),
+                    Segment = p.Segment.ToString(),
+                    SalesPrice = p.SalesPrice
+                })
+                .ToListAsync(ct);
+        }
+
         public async Task<SubscriptionPlanDto> CreateSubscriptionPlanAsync(CreateSubscriptionPlanRequest req, Guid actorUserId, CancellationToken ct)
         {
             var plan = new SubscriptionPlan

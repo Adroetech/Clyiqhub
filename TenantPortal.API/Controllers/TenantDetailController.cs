@@ -157,6 +157,7 @@ namespace TenantPortal.API.Controllers
         public string? ContactName { get; set; }
         public string Email { get; set; } = default!;
         public string? ContactNumber { get; set; }
+        public string? Remark { get; set; }
         public string? Notes { get; set; }
         public IFormFile? Document { get; set; }
     }

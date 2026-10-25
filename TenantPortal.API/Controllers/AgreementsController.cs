@@ -67,6 +67,7 @@ namespace TenantPortal.API.Controllers
                 ContactName = form.ContactName,
                 Email = form.Email,
                 ContactNumber = form.ContactNumber,
+                Remark = form.Remark,
                 Notes = form.Notes
             };
 
@@ -107,6 +108,66 @@ namespace TenantPortal.API.Controllers
         {
             await _svc.RejectAsync(id, CurrentUserId, RoleSlug, ct);
             return Ok(ApiResult.Success("Agreement rejected successfully."));
+        }
+
+        // Admin Manual (25-10-2026) §2.4 Agreement Detail mockup: "Add | View
+        // | Replace" next to the document filename.
+        [HttpPut("{id:guid}/document")]
+        [RequirePermission("agreement", "edit")]
+        [RequestSizeLimit(20_000_000)] // 20MB
+        public async Task<IActionResult> ReplaceDocument([FromRoute] Guid id, [FromForm] IFormFile document, CancellationToken ct)
+        {
+            if (document is null || document.Length == 0)
+                return BadRequest(ApiResult.Failure("A document must be uploaded."));
+
+            await using var stream = document.OpenReadStream();
+            await _svc.ReplaceDocumentAsync(id, stream, document.FileName, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Document replaced successfully."));
+        }
+
+        // ----------------------
+        // Agreement Lines (Admin Manual 25-10-2026 §2.4: "Agreement Lines |
+        // Add | Delete | update from Price List")
+        // ----------------------
+
+        [HttpGet("{id:guid}/lines")]
+        [RequirePermission("agreement", "view")]
+        public async Task<IActionResult> GetLines([FromRoute] Guid id, CancellationToken ct)
+        {
+            var rows = await _svc.GetLinesAsync(id, ct);
+            return Ok(ApiListResponse<AgreementLineDto>.Success(rows.ToList(), rows.Count, 1, Math.Max(1, rows.Count)));
+        }
+
+        [HttpPost("{id:guid}/lines")]
+        [RequirePermission("agreement", "edit")]
+        public async Task<IActionResult> AddLine([FromRoute] Guid id, [FromBody] AgreementLineCreateRequest req, CancellationToken ct)
+        {
+            var lineId = await _svc.AddLineAsync(id, req, CurrentUserId, RoleSlug, ct);
+            return StatusCode(201, ApiResponse<Guid>.Success(lineId, "Line added successfully."));
+        }
+
+        [HttpPut("{id:guid}/lines/{lineId:guid}")]
+        [RequirePermission("agreement", "edit")]
+        public async Task<IActionResult> UpdateLine([FromRoute] Guid id, [FromRoute] Guid lineId, [FromBody] AgreementLineUpdateRequest req, CancellationToken ct)
+        {
+            await _svc.UpdateLineAsync(id, lineId, req, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Line updated successfully."));
+        }
+
+        [HttpDelete("{id:guid}/lines/{lineId:guid}")]
+        [RequirePermission("agreement", "edit")]
+        public async Task<IActionResult> DeleteLine([FromRoute] Guid id, [FromRoute] Guid lineId, CancellationToken ct)
+        {
+            await _svc.DeleteLineAsync(id, lineId, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Line deleted successfully."));
+        }
+
+        [HttpPut("{id:guid}/lines/{lineId:guid}/refresh-from-price-list")]
+        [RequirePermission("agreement", "edit")]
+        public async Task<IActionResult> RefreshLineFromPriceList([FromRoute] Guid id, [FromRoute] Guid lineId, CancellationToken ct)
+        {
+            await _svc.RefreshLineFromPriceListAsync(id, lineId, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Line refreshed from Price List."));
         }
     }
 }

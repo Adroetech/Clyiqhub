@@ -19,5 +19,14 @@ namespace TenantPortal.Application.Interfaces.Services
         // Agreement -> Approval -> Active Agreement -> Order.
         Task ApproveAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct);
         Task RejectAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct);
+
+        Task ReplaceDocumentAsync(Guid id, Stream documentStream, string documentFileName, Guid actorUserId, string roleSlug, CancellationToken ct);
+
+        // Agreement Lines (Admin Manual 25-10-2026 §2.4).
+        Task<IReadOnlyList<AgreementLineDto>> GetLinesAsync(Guid agreementId, CancellationToken ct);
+        Task<Guid> AddLineAsync(Guid agreementId, AgreementLineCreateRequest req, Guid actorUserId, string roleSlug, CancellationToken ct);
+        Task UpdateLineAsync(Guid agreementId, Guid lineId, AgreementLineUpdateRequest req, Guid actorUserId, string roleSlug, CancellationToken ct);
+        Task DeleteLineAsync(Guid agreementId, Guid lineId, Guid actorUserId, string roleSlug, CancellationToken ct);
+        Task RefreshLineFromPriceListAsync(Guid agreementId, Guid lineId, Guid actorUserId, string roleSlug, CancellationToken ct);
     }
 }

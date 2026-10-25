@@ -17,6 +17,7 @@ namespace TenantPortal.Application.DTOs.Agreement
         public string? ContactName { get; set; }
         public string Email { get; set; } = default!;
         public string? ContactNumber { get; set; }
+        public string? Remark { get; set; }
         public string? Notes { get; set; }
 
         // AgreementStatus: Active=0, Expired=1, Terminated=2, Draft=3,

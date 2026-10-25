@@ -69,6 +69,21 @@ namespace TenantPortal.API.Controllers
         public async Task<IActionResult> Vendors(CancellationToken ct)
             => Ok(await _repo.GetVendorsAsync(ct));
 
+        // GET /api/lookup/regions
+        [HttpGet("regions")]
+        public async Task<IActionResult> Regions(CancellationToken ct)
+            => Ok(await _repo.GetRegionsAsync(ct));
+
+        // GET /api/lookup/payment-terms
+        [HttpGet("payment-terms")]
+        public async Task<IActionResult> PaymentTerms(CancellationToken ct)
+            => Ok(await _repo.GetPaymentTermsAsync(ct));
+
+        // GET /api/lookup/price-list-skus?vendorId=<guid> — Agreement Lines' SKU picker.
+        [HttpGet("price-list-skus")]
+        public async Task<IActionResult> PriceListSkus([FromQuery] Guid? vendorId, CancellationToken ct)
+            => Ok(await _repo.GetPriceListSkusAsync(vendorId, ct));
+
         // POST /api/lookup/subscription-plans — add a new plan to the catalog.
         [HttpPost("subscription-plans")]
         [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]

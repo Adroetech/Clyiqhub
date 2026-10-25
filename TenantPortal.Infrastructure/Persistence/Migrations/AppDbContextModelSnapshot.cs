@@ -48,8 +48,8 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ContractNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<string>("ContractType")
                         .IsRequired()
@@ -74,6 +74,10 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("DomainName")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -90,6 +94,13 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid?>("RegionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Remark")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<int?>("RenewalNoticeDays")
                         .HasColumnType("int");
@@ -112,6 +123,92 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Agreements", "dbo");
+                });
+
+            modelBuilder.Entity("TenantPortal.Domain.Entities.AgreementLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AgreementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Billing")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("DiscountPercent")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("LineNo")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("ListPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("PriceListItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PriceUnit")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("Sku")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SkuName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgreementId")
+                        .HasDatabaseName("IX_AgreementLines_AgreementId");
+
+                    b.ToTable("AgreementLines", "dbo");
                 });
 
             modelBuilder.Entity("TenantPortal.Domain.Entities.AuditLog", b =>
@@ -217,7 +314,12 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
+                    b.Property<Guid?>("RegionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("CountryId");
+
+                    b.HasIndex("RegionId");
 
                     b.ToTable("Country", "dbo");
                 });
@@ -644,6 +746,34 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("PasswordResetTokens", "dbo");
                 });
 
+            modelBuilder.Entity("TenantPortal.Domain.Entities.PaymentTermOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PaymentTerms_Code");
+
+                    b.ToTable("PaymentTerms", "dbo");
+                });
+
             modelBuilder.Entity("TenantPortal.Domain.Entities.PriceListEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -951,6 +1081,22 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("SysUserRoleDetails", "dbo");
+                });
+
+            modelBuilder.Entity("TenantPortal.Domain.Entities.Region", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Regions", "dbo");
                 });
 
             modelBuilder.Entity("TenantPortal.Domain.Entities.Segment", b =>
@@ -1598,6 +1744,16 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Vendors", "dbo");
+                });
+
+            modelBuilder.Entity("TenantPortal.Domain.Entities.Country", b =>
+                {
+                    b.HasOne("TenantPortal.Domain.Entities.Region", "Region")
+                        .WithMany()
+                        .HasForeignKey("RegionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Region");
                 });
 
             modelBuilder.Entity("TenantPortal.Domain.Entities.SysUserInfo", b =>

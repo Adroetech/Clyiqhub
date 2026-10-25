@@ -21,7 +21,9 @@ namespace TenantPortal.Domain.Entities
 
         // Was "Contract ID" (required+unique, the primary identifier) —
         // now an optional external reference per the updated manual.
-        [MaxLength(50)]
+        // Admin Manual (25-10-2026) §2.4 Agreement Detail: "80 Charter Text
+        // filed" — widened from 50.
+        [MaxLength(80)]
         public string? ContractNumber { get; set; }
 
         public Guid TenantId { get; set; }
@@ -49,10 +51,9 @@ namespace TenantPortal.Domain.Entities
 
         public Guid? CountryId { get; set; }
 
-        // Region is in the Admin Manual's Agreement Detail table but is
-        // deliberately NOT implemented yet — no Region master data exists
-        // anywhere in the system (the Regions table is unseeded, 0 rows).
-        // Deferred until the manager provides the real region list.
+        // Admin Manual (25-10-2026) §2.4: auto-populated server-side from
+        // CountryId's Region (see AgreementsService) — read-only to the client.
+        public Guid? RegionId { get; set; }
 
         [MaxLength(150)]
         public string? ContactName { get; set; }
@@ -63,8 +64,18 @@ namespace TenantPortal.Domain.Entities
         [MaxLength(50)]
         public string? ContactNumber { get; set; }
 
+        // "Value has to be pick from Tenant" — server-set from the Tenant's
+        // own Domain, not client-supplied (see AgreementsService).
+        [MaxLength(150)]
+        public string? DomainName { get; set; }
+
         [Required, MaxLength(255)]
         public string DocumentPath { get; set; } = default!;
+
+        // Distinct from Notes: "200 Charter Text filed" customer-facing
+        // field vs. Notes' longer internal-only free text.
+        [MaxLength(200)]
+        public string? Remark { get; set; }
 
         [MaxLength(2000)]
         public string? Notes { get; set; }

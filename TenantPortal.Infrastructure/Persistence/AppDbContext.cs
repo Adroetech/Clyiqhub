@@ -51,7 +51,10 @@ namespace TenantPortal.Infrastructure.Persistence
         public DbSet<EmailSetting> EmailSettings => Set<EmailSetting>();
 
         public DbSet<Agreement> Agreements => Set<Agreement>();
+        public DbSet<AgreementLine> AgreementLines => Set<AgreementLine>();
         public DbSet<Vendor> Vendors => Set<Vendor>();
+        public DbSet<Region> Regions => Set<Region>();
+        public DbSet<PaymentTermOption> PaymentTerms => Set<PaymentTermOption>();
         public DbSet<Order> Orders => Set<Order>();
         public DbSet<Transaction> Transactions => Set<Transaction>();
         public DbSet<BillingAccount> BillingAccounts => Set<BillingAccount>();
@@ -152,6 +155,25 @@ namespace TenantPortal.Infrastructure.Persistence
             b.Entity<LicenseSnapshot>(e =>
             {
                 e.HasIndex(x => x.SnapshotDate).IsUnique().HasDatabaseName("UX_LicenseSnapshots_Date");
+            });
+
+            b.Entity<PaymentTermOption>(e =>
+            {
+                e.HasIndex(x => x.Code).IsUnique().HasDatabaseName("UX_PaymentTerms_Code");
+            });
+
+            b.Entity<Country>(e =>
+            {
+                e.HasOne(x => x.Region).WithMany().HasForeignKey(x => x.RegionId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            b.Entity<AgreementLine>(e =>
+            {
+                e.HasIndex(x => x.AgreementId).HasDatabaseName("IX_AgreementLines_AgreementId");
+                e.Property(x => x.ListPrice).HasPrecision(18, 2);
+                e.Property(x => x.DiscountPercent).HasPrecision(18, 2);
+                e.Property(x => x.DiscountAmount).HasPrecision(18, 2);
+                e.Property(x => x.Amount).HasPrecision(18, 2);
             });
 
 
@@ -325,7 +347,9 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.HasIndex(x => x.AgreementNo).IsUnique();
                 // ContractNumber ("Agreement Reference") is now optional —
                 // was required+unique when it was the primary identifier.
-                e.Property(x => x.ContractNumber).HasMaxLength(50);
+                // Admin Manual (25-10-2026) §2.4 Agreement Detail: "80
+                // Charter Text filed" — widened from 50.
+                e.Property(x => x.ContractNumber).HasMaxLength(80);
             });
 
             // Vendors — Admin Manual (20-10-2026) §2.4.

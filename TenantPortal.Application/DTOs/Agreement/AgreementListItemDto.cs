@@ -21,10 +21,14 @@ namespace TenantPortal.Application.DTOs.Agreement
         public string? Currency { get; set; }
         public Guid? CountryId { get; set; }
         public string? CountryName { get; set; }
+        public Guid? RegionId { get; set; }
+        public string? RegionName { get; set; }
         public string? ContactName { get; set; }
         public string Email { get; set; } = default!;
         public string? ContactNumber { get; set; }
+        public string? DomainName { get; set; }
         public string DocumentPath { get; set; } = default!;
+        public string? Remark { get; set; }
         public string? Notes { get; set; }
         public int Status { get; set; }
         public DateTime CreatedAt { get; set; }
