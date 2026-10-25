@@ -6,7 +6,7 @@
         public string Email { get; set; } = default!;
 
         // tenant level role dropdown (Tenant Admin only)
-        public string Role { get; set; } = "environment_manager";
+        public string Role { get; set; } = "TenantAdmin";
 
         // platform users must pass this; env manager creation inside tenant context can omit
         public Guid? TenantId { get; set; }

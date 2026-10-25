@@ -4,6 +4,9 @@
 out/
 publish/
 
+# Runtime-uploaded files (Agreement documents, etc.) — not source
+TenantPortal.API/wwwroot/uploads/
+
 # Visual Studio / Rider / VS Code
 .vs/
 .idea/

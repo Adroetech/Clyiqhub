@@ -1,13 +1,14 @@
-﻿using System.ComponentModel.DataAnnotations;
-
 namespace TenantPortal.Domain.Entities
 {
+    /// <summary>
+    /// Scopes a (user, role) pair to a set of specific tenants. Composite key
+    /// (UserId, Role, TenantId) matches the real table exactly; Role is the role slug,
+    /// not a RoleId FK — there is no surrogate key column.
+    /// </summary>
     public class SysUserRoleTenant
     {
-        [Key] public Guid Id { get; set; }
         public Guid UserId { get; set; }
-        public int RoleId { get; set; }        // FK → SysRoles.RoleId
+        public string Role { get; set; } = default!;
         public Guid TenantId { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

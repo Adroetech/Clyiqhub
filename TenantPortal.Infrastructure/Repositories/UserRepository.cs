@@ -11,13 +11,13 @@ namespace TenantPortal.Infrastructure.Repositories
         public UserRepository(AppDbContext db) => _db = db;
 
         public Task<SysUserInfo?> FindByEmailAsync(string email, CancellationToken ct)
-            => _db.SysUserInfo.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email, ct);
+            => _db.SysUserInfo.AsNoTracking().Include(u => u.Role).FirstOrDefaultAsync(u => u.Email == email, ct);
 
         public async Task<bool> IsTenantActiveAsync(Guid? tenantId, CancellationToken ct)
         {
             if (tenantId is null) return true; // platform users
             var t = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(x => x.TenantId == tenantId, ct);
-            return t != null && t.Status == "Active";
+            return t != null && t.Status == TenantStatus.Active;
         }
 
         public async Task<bool> HasActiveSubscriptionAsync(Guid? tenantId, CancellationToken ct)
@@ -36,7 +36,7 @@ namespace TenantPortal.Infrastructure.Repositories
         {
             // users joined with tenant’s active subscriptions
             return _db.SysUserInfo
-                .Where(u => u.TenantId == tenantId && u.Status == "Active")
+                .Where(u => u.TenantId == tenantId && u.Status == UserAccountStatus.Active)
                 .Join(_db.TenantSubscriptions.Where(s =>
                         s.TenantId == tenantId && s.Status == "Active" &&
                         s.StartDate <= DateTime.UtcNow && s.ExpiryDate >= DateTime.UtcNow),
@@ -48,7 +48,7 @@ namespace TenantPortal.Infrastructure.Repositories
         }
 
         public Task<SysUserInfo?> FindByIdAsync(Guid userId, CancellationToken ct)
-    => _db.SysUserInfo.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);
+    => _db.SysUserInfo.AsNoTracking().Include(x => x.Role).FirstOrDefaultAsync(x => x.UserId == userId, ct);
 
         public async Task MarkLoginSuccessAsync(Guid userId, CancellationToken ct)
         {

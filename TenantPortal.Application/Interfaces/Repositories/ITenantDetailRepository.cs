@@ -11,8 +11,7 @@ namespace TenantPortal.Application.Interfaces.Repositories
         Task<IReadOnlyList<TenantInvoiceRowDto>> GetInvoicesAsync(Guid tenantId, CancellationToken ct);
         Task<IReadOnlyList<TenantUserRowDto>> GetUsersAsync(Guid tenantId, CancellationToken ct);
 
-        // Agreements and Orders: use raw SQL unless you already have EF entities
-        Task<IReadOnlyList<object>> GetAgreementsAsync(Guid tenantId, CancellationToken ct);
-        Task<IReadOnlyList<object>> GetOrdersAsync(Guid tenantId, CancellationToken ct);
+        Task<IReadOnlyList<TenantAgreementRowDto>> GetAgreementsAsync(Guid tenantId, CancellationToken ct);
+        Task<IReadOnlyList<TenantOrderRowDto>> GetOrdersAsync(Guid tenantId, CancellationToken ct);
     }
 }

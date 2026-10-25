@@ -88,8 +88,7 @@ namespace TenantPortal.Infrastructure.Authorization
                 {
                     var roleSlug = await _auth.ResolveRoleSlugByIdAsync(grantingRoleId.Value, ct); // you need this method OR map roleId->slug in repo
                     if (roleSlug is not null &&
-                        (roleSlug.Equals("subscription_manager", StringComparison.OrdinalIgnoreCase) ||
-                         roleSlug.Equals("subscription_agent", StringComparison.OrdinalIgnoreCase)))
+                        roleSlug.Equals("Admin", StringComparison.OrdinalIgnoreCase))
                     {
                         var allowed = await _auth.GetUserCountriesAsync(userId, grantingRoleId.Value, ct);
 
@@ -104,7 +103,7 @@ namespace TenantPortal.Infrastructure.Authorization
             }
             else
             {
-                // Tenant scoped roles (environment_manager)
+                // Tenant scoped roles (TenantAdmin)
                 // Use tenantIdFromRequest OR tenant claim
                 if (Guid.TryParse(tenantClaim, out var tokenTenantId))
                 {
@@ -114,7 +113,7 @@ namespace TenantPortal.Infrastructure.Authorization
                     {
                         var roleSlug = await _auth.ResolveRoleSlugByIdAsync(grantingRoleId.Value, ct);
                         if (roleSlug is not null &&
-                            roleSlug.Equals("environment_manager", StringComparison.OrdinalIgnoreCase))
+                            roleSlug.Equals("TenantAdmin", StringComparison.OrdinalIgnoreCase))
                         {
                             var allowedTenants = await _auth.GetUserTenantsAsync(userId, grantingRoleId.Value, ct);
                             return allowedTenants.Contains(effectiveTenantId);
@@ -133,8 +132,7 @@ namespace TenantPortal.Infrastructure.Authorization
            ?? user.FindFirst("role")?.Value
            ?? "";
 
-            if (roleSlug.Equals("owner", StringComparison.OrdinalIgnoreCase) ||
-                roleSlug.Equals("super_admin", StringComparison.OrdinalIgnoreCase))
+            if (roleSlug.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase))
                 return true;
 
             if (user?.Identity?.IsAuthenticated != true) return false;

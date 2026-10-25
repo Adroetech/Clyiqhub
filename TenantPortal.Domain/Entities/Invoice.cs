@@ -26,5 +26,12 @@ namespace TenantPortal.Domain.Entities
 
         public DateTime DueDate { get; set; }     // date
         public DateTime IssuedDate { get; set; }  // date
+
+        // "The final process" diagram's billing gate (step 4): an approved
+        // credit customer may satisfy the Subscription provisioning gate
+        // without actually paying. Kept separate from Status rather than
+        // adding "CreditApproved" as a Status value, since CK_Invoices_Status
+        // only allows Pending/overdue/unpaid/paid on the live table.
+        public DateTime? CreditApprovedAt { get; set; }
     }
 }

@@ -23,7 +23,7 @@ namespace TenantPortal.API.Controllers
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateErpEmployeeRequest req, CancellationToken ct)
         {
-            var result = await _svc.CreateEmployeeAsync(CurrentUserId, TenantId, RoleSlug, req.FullName, req.Email, ct);
+            var result = await _svc.CreateEmployeeAsync(CurrentUserId, TenantId, RoleSlug, req.FullName, req.Email, req.SubscriptionId, ct);
             return StatusCode(201, result);
         }
 

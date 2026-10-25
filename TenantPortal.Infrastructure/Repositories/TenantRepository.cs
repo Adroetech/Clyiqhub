@@ -43,11 +43,11 @@ public class TenantRepository : Repository<Tenant>, ITenantRepository
         if (allowedCountryIds != null)
         {
             var list = allowedCountryIds.ToList();
-            q = q.Where(t => t.CountryId.HasValue && list.Contains(t.CountryId.Value));
+            q = q.Where(t => list.Contains(t.CountryId));
         }
 
-        if (!string.IsNullOrWhiteSpace(status))
-            q = q.Where(t => t.Status == status);
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<TenantStatus>(status, true, out var statusFilter))
+            q = q.Where(t => t.Status == statusFilter);
 
         if (countryId.HasValue)
             q = q.Where(t => t.CountryId == countryId);
@@ -78,12 +78,12 @@ public class TenantRepository : Repository<Tenant>, ITenantRepository
 
     public async Task<IReadOnlyList<Tenant>> GetActiveForDropdownAsync(IEnumerable<Guid>? allowedCountryIds, CancellationToken ct)
     {
-        IQueryable<Tenant> q = _db.Tenants.AsNoTracking().Where(t => t.Status == "Active");
+        IQueryable<Tenant> q = _db.Tenants.AsNoTracking().Where(t => t.Status == TenantStatus.Active);
 
         if (allowedCountryIds != null)
         {
             var list = allowedCountryIds.ToList();
-            q = q.Where(t => t.CountryId.HasValue && list.Contains(t.CountryId.Value));
+            q = q.Where(t => list.Contains(t.CountryId));
         }
 
         return await q.OrderBy(t => t.TenantName).ToListAsync(ct);

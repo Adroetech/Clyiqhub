@@ -9,26 +9,23 @@
 
     public sealed class TenantDetailPageDto
     {
-        // Profile
+        // Profile — nullable: a Draft tenant may not have these filled in yet.
         public Guid TenantId { get; set; }
-        public string TenantName { get; set; } = default!;
+        public string? TenantName { get; set; }
         public string Status { get; set; } = default!;
-        public string Domain { get; set; } = default!;
-        public string EmailDomain { get; set; } = default!;
-        public string Email { get; set; } = default!;
+        public string? Domain { get; set; }
+        public string? EmailDomain { get; set; }
+        public string? Email { get; set; }
         public Guid? CountryId { get; set; }
-        public Guid? RegionId { get; set; }
-        public long City { get; set; }
-        public string Address { get; set; } = default!;
-        public string PrimaryContact { get; set; } = default!;
-        public string ContactNumber { get; set; } = default!;
-        public bool AutoRenewal { get; set; }
-        public DateTime StartDate { get; set; }
-        public string? ContractId { get; set; }
-        public string? ContractType { get; set; }
-        public long LanguageId { get; set; }
-        public string BackupPlan { get; set; } = default!;
-        public string Timezone { get; set; } = default!;
+        public long? City { get; set; }
+        public string? Address { get; set; }
+        public string? PrimaryContact { get; set; }
+        public string? ContactNumber { get; set; }
+        public bool? AutoRenewal { get; set; }
+        public DateTime? StartDate { get; set; }
+        public long? LanguageId { get; set; }
+        public string? BackupPlan { get; set; }
+        public string? Timezone { get; set; }
 
         // Summary tiles
         public TenantDetailSummaryDto Summary { get; set; } = new();
@@ -78,5 +75,32 @@
         public string Role { get; set; } = default!;
         public string Status { get; set; } = default!;
         public DateTime? LastLoginAt { get; set; }
+    }
+
+    public sealed class TenantAgreementRowDto
+    {
+        public Guid AgreementId { get; set; }
+        public string ContractType { get; set; } = default!;
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public string PaymentTerm { get; set; } = default!;
+        public string Email { get; set; } = default!;
+        public string DocumentPath { get; set; } = default!;
+        public int Status { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public sealed class TenantOrderRowDto
+    {
+        public Guid OrderId { get; set; }
+        public string SalesOrderNo { get; set; } = default!;
+        public Guid AgreementId { get; set; }
+        public string Domain { get; set; } = default!;
+        public DateTime SalesDate { get; set; }
+        public int Qty { get; set; }
+        public decimal TotalPayable { get; set; }
+        public decimal NetPayable { get; set; }
+        public int Status { get; set; }
+        public DateTime CreatedAt { get; set; }
     }
 }

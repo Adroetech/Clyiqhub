@@ -28,10 +28,10 @@ namespace TenantPortal.API.Auth
 
             var user = ctx.HttpContext.User;
 
-            // ✅ OWNER ALWAYS ALLOWED (bypass everything)
+            // ✅ SUPERADMIN ALWAYS ALLOWED (bypass everything)
             var roleSlug = user.FindFirst(ClaimTypes.Role)?.Value ?? user.FindFirst("role")?.Value;
             if (!string.IsNullOrWhiteSpace(roleSlug) &&
-                roleSlug.Equals("owner", StringComparison.OrdinalIgnoreCase))
+                roleSlug.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }

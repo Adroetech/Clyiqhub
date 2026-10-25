@@ -14,5 +14,7 @@ namespace TenantPortal.Domain.Entities
 
         [Required]
         public Guid CountryId { get; set; }
+
+        public ICollection<Tenant> Tenants { get; set; } = new List<Tenant>();
     }
 }

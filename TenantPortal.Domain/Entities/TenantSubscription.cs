@@ -14,6 +14,12 @@ namespace TenantPortal.Domain.Entities
 
         public Guid? SubscriptionPlanId { get; set; }
 
+        // "The final process" diagram: Subscription is created FROM a
+        // fulfilled, paid (or credit-approved) Order — the billing gate
+        // (step 4) is checked against this Order's Invoice. Nullable for
+        // backward compatibility with rows created before this link existed.
+        public Guid? OrderId { get; set; }
+
         [Required, MaxLength(254)]
         public string SubscriptionName { get; set; } = default!;
 

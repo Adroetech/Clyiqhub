@@ -1,13 +1,17 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Serilog;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.RateLimiting;
 
 using TenantPortal.Application.Common.Mappings;
 using TenantPortal.Application.Common.Settings;
+using TenantPortal.Application.DTOs.Common;
 using TenantPortal.Application.Exceptions;
 using TenantPortal.Application.Interfaces;
 using TenantPortal.Application.Interfaces.Identity;
@@ -28,6 +32,19 @@ public partial class Program
     private static async Task Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+
+        // -----------------------
+        // Logging (Serilog) — console for live viewing, rolling file so
+        // exceptions survive after the console/process is gone.
+        // -----------------------
+        builder.Host.UseSerilog((ctx, services, cfg) => cfg
+            .ReadFrom.Configuration(ctx.Configuration)
+            .Enrich.FromLogContext()
+            .WriteTo.Console()
+            .WriteTo.File(
+                Path.Combine(AppContext.BaseDirectory, "logs", "log-.txt"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 30));
 
         // -----------------------
         // DB
@@ -97,6 +114,40 @@ public partial class Program
 
         builder.Services.AddAuthorization();
 
+        // -----------------------
+        // Rate limiting (IP-based, auth endpoints only) — per-account
+        // progressive lockout already exists in AuthService, but nothing
+        // previously stopped a single IP from spraying many different
+        // emails/login attempts per minute.
+        // -----------------------
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy("auth", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        Window = TimeSpan.FromMinutes(1),
+                        PermitLimit = 10,
+                        QueueLimit = 0
+                    }));
+        });
+
+        // -----------------------
+        // CORS (frontend dev servers)
+        // -----------------------
+        builder.Services.AddCors(options =>
+        {
+            options.AddPolicy("Frontend", policy =>
+            {
+                policy.WithOrigins("http://localhost:5173", "https://localhost:5173", "http://localhost:4200", "https://localhost:4200", "http://localhost:4201", "https://localhost:4201")
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials();
+            });
+        });
+
 
         // -----------------------
         // DI - Core services
@@ -126,6 +177,9 @@ public partial class Program
         builder.Services.AddScoped<ITenantRepository, TenantRepository>();
         builder.Services.AddScoped<ITenantService, TenantService>();
         builder.Services.AddScoped<IPasswordResetRepository, PasswordResetRepository>();
+        builder.Services.AddScoped<IMfaOtpRepository, MfaOtpRepository>();
+        builder.Services.AddScoped<IKnownDeviceRepository, KnownDeviceRepository>();
+        builder.Services.AddScoped<ICaptchaVerifier, DevCaptchaVerifier>();
         builder.Services.AddScoped<IDashboardRepository,DashboardRepository>();
         builder.Services.AddScoped<IDashboardService,DashboardService>();
 
@@ -136,19 +190,18 @@ public partial class Program
 
         builder.Services.AddScoped<ITenantDetailRepository, TenantDetailRepository>();
         builder.Services.AddScoped<ITenantDetailService, TenantDetailService>();
+        builder.Services.AddScoped<IAgreementsService, AgreementsService>();
+        builder.Services.AddScoped<IOrdersService, OrdersService>();
+        builder.Services.AddScoped<ISubscriptionsService, SubscriptionsService>();
+        builder.Services.AddSingleton<IFileStorage>(_ => new LocalFileStorage(Path.Combine(builder.Environment.ContentRootPath, "wwwroot")));
 
         builder.Services.AddScoped<ITenantProvisioningService,TenantProvisioningService>();
-        //builder.Services.AddScoped<IEmailSender,EmailLogSender>();
-        if (builder.Environment.IsDevelopment())
-        {
-            // TESTING ONLY: no SMTP, just log to EmailLogs
-            builder.Services.AddScoped<IEmailSender, EmailLogSender>();
-        }
-        else
-        {
-            // REAL ENV: send actual emails
-            builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
-        }
+        // Always real SMTP, regardless of environment — delivery is gated by
+        // the EmailSettings row (Settings > Email in the admin UI), not by
+        // dev-vs-prod. SmtpEmailSender already fails clearly ("not
+        // configured"/"disabled") when that row is missing or off, so
+        // there's no need for a log-only stand-in here.
+        builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
         builder.Services.AddScoped<IEmailSettingsRepository, EmailSettingsRepository>();
         builder.Services.AddScoped<ITenantUserOnboardingService, TenantUserOnboardingService>();
         builder.Services.AddScoped<ITenantSubscriptionRepository, TenantSubscriptionRepository>();
@@ -160,6 +213,7 @@ public partial class Program
         builder.Services.AddAutoMapper(typeof(TenantProfile).Assembly);
         builder.Services.AddScoped<ISecretProtector, SecretProtector>();
         builder.Services.AddScoped<ILookupRepository, LookupRepository>();
+        builder.Services.AddScoped<IPriceListService, PriceListService>();
 
         builder.Services.AddScoped<IRbacAdminRepository, RbacAdminRepository>();
         builder.Services.AddScoped<IRbacAdminService, RbacAdminService>();
@@ -189,6 +243,30 @@ public partial class Program
                 .Build();
 
             options.Filters.Add(new Microsoft.AspNetCore.Mvc.Authorization.AuthorizeFilter(policy));
+        })
+        // All enums serialize/deserialize as their string names project-wide (e.g. "Excluded",
+        // not 0) — and Swashbuckle reflects this in the generated schema/examples too, so the
+        // Swagger "Try it out" sample shows the right kind of value instead of a raw number.
+        .AddJsonOptions(options =>
+        {
+            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        });
+
+        // Model-binding/DataAnnotations failures (e.g. a missing [Required] field) would
+        // otherwise short-circuit straight to ASP.NET's default ValidationProblemDetails
+        // shape, bypassing the unified { isSuccess, errorMessage } contract entirely.
+        builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+        {
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                var firstError = context.ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))
+                    ?? "One or more fields are invalid.";
+
+                return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(ApiResult.Failure(firstError));
+            };
         });
 
         // -----------------------
@@ -223,17 +301,25 @@ public partial class Program
 
         var app = builder.Build();
 
+        // Outermost middleware, so the "responded X in Yms" log line reflects
+        // the FINAL status code (e.g. 404) after UseExceptionHandler below has
+        // translated the exception — not the raw 500 it would see otherwise.
+        app.UseSerilogRequestLogging();
+
         // -----------------------
-        // Seed users
+        // Seed data
         // -----------------------
         using (var scope = app.Services.CreateScope())
         {
             var sp = scope.ServiceProvider;
             var logger = sp.GetRequiredService<ILogger<Program>>();
+
+            logger.LogInformation("Seeding core data (lookups, RBAC catalog, roles, first SuperAdmin): START");
+            await TenantPortal.Infrastructure.Seed.SeedCoreData.RunAsync(sp);
+            logger.LogInformation("Seeding core data: DONE");
+
             logger.LogInformation("Seeding platform users: START");
-
             await TenantPortal.Infrastructure.Seed.SeedPlatformUsers.RunAsync(sp);
-
             logger.LogInformation("Seeding platform users: DONE");
         }
 
@@ -249,34 +335,44 @@ public partial class Program
                 context.Response.Clear();
                 context.Response.ContentType = "application/json";
 
+                var exLogger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+
                 var feature = context.Features.Get<IExceptionHandlerFeature>();
                 if (feature?.Error == null)
                 {
+                    exLogger.LogError("Exception handler invoked with no captured error for {Path}", context.Request.Path);
                     context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-                    await context.Response.WriteAsJsonAsync(new { message = "Internal server error." });
+                    await context.Response.WriteAsJsonAsync(ApiResult.Failure("Internal server error."));
                     return;
                 }
 
+                // Every failure — regardless of which endpoint shape (ApiListResponse/ApiResponse/
+                // ApiResult) succeeds on — comes back as this same lean { isSuccess, errorMessage }
+                // shape. A client that checks isSuccess first never needs to branch on failure shape.
                 switch (feature.Error)
                 {
                     case DomainException ex:
+                        exLogger.LogWarning(ex, "Domain rule rejected {Method} {Path}: {Message}", context.Request.Method, context.Request.Path, ex.Message);
                         context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                        await context.Response.WriteAsJsonAsync(new { errorCode = ex.ErrorCode, message = ex.Message });
+                        await context.Response.WriteAsJsonAsync(ApiResult.Failure(ex.Message));
                         break;
 
                     case ForbiddenException ex:
+                        exLogger.LogWarning(ex, "Forbidden on {Method} {Path}: {Message}", context.Request.Method, context.Request.Path, ex.Message);
                         context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                        await context.Response.WriteAsJsonAsync(new { message = ex.Message });
+                        await context.Response.WriteAsJsonAsync(ApiResult.Failure(ex.Message));
                         break;
 
                     case NotFoundException ex:
+                        exLogger.LogWarning(ex, "Not found on {Method} {Path}: {Message}", context.Request.Method, context.Request.Path, ex.Message);
                         context.Response.StatusCode = StatusCodes.Status404NotFound;
-                        await context.Response.WriteAsJsonAsync(new { message = ex.Message });
+                        await context.Response.WriteAsJsonAsync(ApiResult.Failure(ex.Message));
                         break;
 
                     default:
+                        exLogger.LogError(feature.Error, "Unhandled exception on {Method} {Path}", context.Request.Method, context.Request.Path);
                         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-                        await context.Response.WriteAsJsonAsync(new { message = "Internal server error." });
+                        await context.Response.WriteAsJsonAsync(ApiResult.Failure("Internal server error."));
                         break;
                 }
             });
@@ -289,6 +385,13 @@ public partial class Program
         app.UseSwaggerUI();
 
         app.UseHttpsRedirection();
+
+        // Serves uploaded Agreement documents from wwwroot/uploads/... (see LocalFileStorage).
+        app.UseStaticFiles();
+
+        app.UseCors("Frontend");
+
+        app.UseRateLimiter();
 
         app.UseAuthentication();
   

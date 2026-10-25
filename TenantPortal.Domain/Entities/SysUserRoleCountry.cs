@@ -1,13 +1,15 @@
-﻿using System.ComponentModel.DataAnnotations;
-
 namespace TenantPortal.Domain.Entities
 {
+    /// <summary>
+    /// Scopes a (user, role) pair to a set of countries — e.g. a Subscription Manager/Agent
+    /// can only act on tenants in the countries listed here for that role. Composite key
+    /// (UserId, Role, CountryCode) matches the real table exactly; Role is the role slug
+    /// (e.g. "subscription_manager"), not a RoleId FK — there is no surrogate key column.
+    /// </summary>
     public class SysUserRoleCountry
     {
-        [Key] public Guid Id { get; set; }
         public Guid UserId { get; set; }
-        public int RoleId { get; set; }         // FK → SysRoles.RoleId
-        public Guid CountryId { get; set; }     // your Country PK type (GUID per your geo model)
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public string Role { get; set; } = default!;
+        public string CountryCode { get; set; } = default!;
     }
 }

@@ -12,8 +12,7 @@ namespace TenantPortal.Domain.Entities.Rbac
         [Required, MaxLength(100)]
         public string Name { get; set; } = default!;
 
-        [Required, MaxLength(40)]
-        public string Level { get; set; } = "Platform"; // Platform/Tenant
+        public RoleType RoleType { get; set; } = RoleType.TenantUser;
 
         [Required, MaxLength(200)]
         public string Slug { get; set; } = default!;

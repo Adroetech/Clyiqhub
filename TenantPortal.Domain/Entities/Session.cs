@@ -17,6 +17,13 @@ namespace TenantPortal.Domain.Entities
         public DateTime? RevokedAt { get; set; }
         public string? UserAgent { get; set; }
         public string? IP { get; set; }
+
+        // Null for sessions created before this was added, and for the
+        // passwordless "Sign in with Email Code" path — single-active-
+        // session enforcement (SessionRepository.RevokeOtherDevicesAsync)
+        // only runs where a fingerprint was actually computed.
+        [MaxLength(64)]
+        public string? DeviceFingerprint { get; set; }
     }
 
 }

@@ -9,9 +9,10 @@ namespace TenantPortal.Domain.Entities
         public Guid Id { get; set; }
         public Guid SubscriptionId { get; set; }
         public string Name { get; set; } = default!;
-        public string Provider { get; set; } = default!;
-        public string Status { get; set; } = "Active";
+        public SubscriptionPlanProvider Provider { get; set; }
+        public SubscriptionPlanStatus Status { get; set; } = SubscriptionPlanStatus.Active;
         public int? Qty { get; set; }
+        public decimal PricePerMonth { get; set; }
         public Guid CreatedBy { get; set; }
         public DateTime CreatedAt { get; set; }
     }

@@ -12,8 +12,12 @@ namespace TenantPortal.Application.Common.Mappings
                 .ForMember(d => d.TenantId, opt => opt.Ignore())
                 .ForMember(d => d.Status, opt => opt.Ignore())
                 .ForMember(d => d.CreatedAt, opt => opt.Ignore())
-                .ForMember(d => d.ApprovedAt, opt => opt.Ignore())
-                .ForMember(d => d.ApprovedBy, opt => opt.Ignore());
+                .ForMember(d => d.CityId, opt => opt.MapFrom(s => s.City))
+                .ForMember(d => d.City, opt => opt.Ignore())
+                .ForMember(d => d.Country, opt => opt.Ignore())
+                .ForMember(d => d.Language, opt => opt.Ignore());
+                // BackupPlan maps automatically — both sides are the same enum type
+                // (TenantBackupPlan), no parsing needed.
         }
     }
 }

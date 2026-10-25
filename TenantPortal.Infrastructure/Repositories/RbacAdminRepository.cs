@@ -21,10 +21,47 @@ namespace TenantPortal.Infrastructure.Repositories
 
         public async Task<IReadOnlyList<RoleDto>> GetRolesAsync(CancellationToken ct)
         {
-            return await _db.SysRoles.AsNoTracking()
-                .OrderBy(r => r.Level).ThenBy(r => r.Name)
-                .ProjectTo<RoleDto>(_mapper.ConfigurationProvider)
+            var roles = await _db.SysRoles.AsNoTracking()
+                .OrderBy(r => r.RoleType).ThenBy(r => r.Name)
                 .ToListAsync(ct);
+
+            return _mapper.Map<List<RoleDto>>(roles);
+        }
+
+        public async Task<IReadOnlyList<PlatformUserDto>> GetUsersAsync(CancellationToken ct)
+        {
+            var users = await _db.SysUserInfo.AsNoTracking()
+                .Where(u => !u.IsDeleted)
+                .OrderBy(u => u.Email)
+                .Select(u => new { u.UserId, u.Email, u.Name, u.Status })
+                .ToListAsync(ct);
+
+            var assignments = await _db.SysUserRoleDetails.AsNoTracking()
+                .Select(d => new { d.UserId, d.RoleId })
+                .ToListAsync(ct);
+
+            var roles = await _db.SysRoles.AsNoTracking()
+                .Select(r => new { r.RoleId, r.Name })
+                .ToListAsync(ct);
+            var roleNameById = roles.ToDictionary(r => r.RoleId, r => r.Name);
+
+            var rolesByUser = assignments
+                .GroupBy(a => a.UserId)
+                .ToDictionary(g => g.Key, g => g.Select(a => a.RoleId).Distinct().OrderBy(x => x).ToList());
+
+            return users.Select(u =>
+            {
+                var roleIds = rolesByUser.TryGetValue(u.UserId, out var ids) ? ids : new List<int>();
+                return new PlatformUserDto
+                {
+                    UserId = u.UserId,
+                    Email = u.Email,
+                    Name = u.Name,
+                    IsActive = u.Status == Domain.Entities.UserAccountStatus.Active,
+                    RoleIds = roleIds,
+                    RoleNames = roleIds.Select(id => roleNameById.TryGetValue(id, out var n) ? n : $"#{id}").ToList()
+                };
+            }).ToList();
         }
 
         public async Task<IReadOnlyList<PermissionItemDto>> GetPermissionCatalogAsync(CancellationToken ct)
@@ -75,13 +112,13 @@ namespace TenantPortal.Infrastructure.Repositories
             };
         }
 
-        public async Task<int> CreateRoleAsync(string name, string slug, string level, bool isActive, IReadOnlyList<int> processPermissionIds, Guid actor, CancellationToken ct)
+        public async Task<int> CreateRoleAsync(string name, string slug, string roleType, bool isActive, IReadOnlyList<int> processPermissionIds, Guid actor, CancellationToken ct)
         {
             var role = new SysRole
             {
                 Name = name.Trim(),
                 Slug = slug.Trim(),
-                Level = level.Trim(),
+                RoleType = Enum.Parse<RoleType>(roleType.Trim(), ignoreCase: true),
                 IsActive = isActive,
                 CreatedBy = actor
             };
@@ -162,6 +199,51 @@ namespace TenantPortal.Infrastructure.Repositories
 
             await _db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
+        }
+
+        public Task<bool> EmailExistsAsync(string email, CancellationToken ct)
+            => _db.SysUserInfo.AsNoTracking().AnyAsync(u => u.Email == email && !u.IsDeleted, ct);
+
+        public Task<RoleType?> GetRoleTypeAsync(int roleId, CancellationToken ct)
+            => _db.SysRoles.AsNoTracking()
+                .Where(r => r.RoleId == roleId)
+                .Select(r => (RoleType?)r.RoleType)
+                .FirstOrDefaultAsync(ct);
+
+        public async Task<Guid> CreateUserAsync(string name, string email, byte[] passwordHash, int roleId, Guid? tenantId, Guid actor, CancellationToken ct)
+        {
+            using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+            var userId = Guid.NewGuid();
+
+            _db.SysUserInfo.Add(new Domain.Entities.SysUserInfo
+            {
+                UserId = userId,
+                Name = name,
+                Email = email,
+                Password = passwordHash,
+                TenantId = tenantId,
+                RoleId = roleId,
+                Status = Domain.Entities.UserAccountStatus.Active,
+                IsAllowedToLoginToHub = true,
+                FailedLoginCount = 0,
+                IsDeleted = false,
+                Date = DateTime.UtcNow,
+                CreatedByUserId = actor
+            });
+
+            _db.SysUserRoleDetails.Add(new SysUserRoleDetail
+            {
+                UserId = userId,
+                RoleId = roleId,
+                AssignedBy = actor,
+                AssignedAt = DateTime.UtcNow
+            });
+
+            await _db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+
+            return userId;
         }
     }
 }

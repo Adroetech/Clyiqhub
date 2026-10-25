@@ -34,6 +34,12 @@ namespace TenantPortal.Infrastructure.Repositories
             await _db.SaveChangesAsync(ct);
         }
 
+        public Task<PasswordResetToken?> FindByTokenAnyStateAsync(string token, CancellationToken ct)
+        {
+            var h = Hash(token);
+            return _db.PasswordResetTokens.FirstOrDefaultAsync(t => t.TokenHash == h, ct);
+        }
+
         public async Task MarkUsedAsync(Guid tokenId, CancellationToken ct)
         {
             var t = await _db.PasswordResetTokens.FirstAsync(x => x.TokenId == tokenId, ct);

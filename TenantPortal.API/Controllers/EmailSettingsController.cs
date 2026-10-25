@@ -31,12 +31,11 @@ namespace TenantPortal.API.Controllers
 
         private void RequireOwner()
         {
-            if (!RoleSlug.Equals("owner", StringComparison.OrdinalIgnoreCase))
+            if (!RoleSlug.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase))
                 throw new ForbiddenException("Only Owner can manage email settings.");
         }
 
         [HttpGet]
-        [RequirePermission("tenant_management", "view")]
         public async Task<IActionResult> Get(CancellationToken ct)
         {
             RequireOwner();
@@ -59,7 +58,6 @@ namespace TenantPortal.API.Controllers
         }
 
         [HttpPut]
-        [RequirePermission("tenant_management", "view")]
         public async Task<IActionResult> Update([FromBody] UpdateEmailSettingsRequest req, CancellationToken ct)
         {
             RequireOwner();
@@ -84,7 +82,6 @@ namespace TenantPortal.API.Controllers
         }
 
         [HttpPost("test")]
-        [RequirePermission("tenant_management", "view")]
         public async Task<IActionResult> Test([FromBody] TestEmailRequest req, CancellationToken ct)
         {
             RequireOwner();

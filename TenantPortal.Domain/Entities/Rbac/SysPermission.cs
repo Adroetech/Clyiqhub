@@ -15,8 +15,6 @@ namespace TenantPortal.Domain.Entities.Rbac
         [Required, MaxLength(200)]
         public string Slug { get; set; } = default!; // view/create/edit/approve...
 
-        public int RoleId { get; set; } // exists in table (we won’t rely on it)
-
         public int SortOrder { get; set; }
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; }

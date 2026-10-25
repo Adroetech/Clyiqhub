@@ -37,22 +37,19 @@ namespace TenantPortal.Infrastructure.Repositories
             {
                 TenantId = t.TenantId,
                 TenantName = t.TenantName,
-                Status = t.Status,
+                Status = t.Status.ToString(),
                 Domain = t.Domain,
                 EmailDomain = t.EmailDomain,
                 Email = t.Email,
                 CountryId = t.CountryId,
-                RegionId = t.RegionId,
-                City = t.City,
+                City = t.CityId,
                 Address = t.Address,
                 PrimaryContact = t.PrimaryContact,
                 ContactNumber = t.ContactNumber,
                 AutoRenewal = t.AutoRenewal,
                 StartDate = t.StartDate,
-                ContractId = t.ContractId,
-                ContractType = t.ContractType,
                 LanguageId = t.LanguageId,
-                BackupPlan = t.BackupPlan,
+                BackupPlan = t.BackupPlan.ToString(),
                 Timezone = t.Timezone,
                 Summary = new TenantDetailSummaryDto
                 {
@@ -122,41 +119,61 @@ namespace TenantPortal.Infrastructure.Repositories
 
         public async Task<IReadOnlyList<TenantUserRowDto>> GetUsersAsync(Guid tenantId, CancellationToken ct)
         {
-            return await _db.SysUserInfo.AsNoTracking()
+            var rows = await _db.SysUserInfo.AsNoTracking()
                 .Where(u => u.TenantId == tenantId && !u.IsDeleted)
                 .OrderBy(u => u.Email)
-                .Select(u => new TenantUserRowDto
+                .Select(u => new { u.UserId, u.Email, RoleName = u.Role.Name, u.Status, u.LastLoginAt })
+                .ToListAsync(ct);
+
+            return rows.Select(u => new TenantUserRowDto
+            {
+                UserId = u.UserId,
+                Email = u.Email,
+                Role = u.RoleName,
+                Status = u.Status.ToString(),
+                LastLoginAt = u.LastLoginAt
+            }).ToList();
+        }
+
+        public async Task<IReadOnlyList<TenantAgreementRowDto>> GetAgreementsAsync(Guid tenantId, CancellationToken ct)
+        {
+            return await _db.Agreements.AsNoTracking()
+                .Where(x => x.TenantId == tenantId)
+                .OrderByDescending(x => x.CreatedAt)
+                .Select(x => new TenantAgreementRowDto
                 {
-                    UserId = u.UserId,
-                    Email = u.Email,
-                    Role = u.Role,
-                    Status = u.Status,
-                    LastLoginAt = u.LastLoginAt
+                    AgreementId = x.AgreementId,
+                    ContractType = x.ContractType,
+                    StartDate = x.StartDate,
+                    EndDate = x.EndDate,
+                    PaymentTerm = x.PaymentTerm,
+                    Email = x.Email,
+                    DocumentPath = x.DocumentPath,
+                    Status = (int)x.Status,
+                    CreatedAt = x.CreatedAt
                 })
                 .ToListAsync(ct);
         }
 
-        public async Task<IReadOnlyList<object>> GetAgreementsAsync(Guid tenantId, CancellationToken ct)
+        public async Task<IReadOnlyList<TenantOrderRowDto>> GetOrdersAsync(Guid tenantId, CancellationToken ct)
         {
-            // Replace columns as needed once UI finalizes table columns
-            var rows = await _db.Database.SqlQueryRaw<string>($@"
-                SELECT CAST(AgreementId AS nvarchar(36)) AS [Value]
-                FROM dbo.Agreements
-                WHERE TenantId = {{0}}
-                ORDER BY CreatedAt DESC", tenantId).ToListAsync(ct);
-
-            return rows.Cast<object>().ToList();
-        }
-
-        public async Task<IReadOnlyList<object>> GetOrdersAsync(Guid tenantId, CancellationToken ct)
-        {
-            var rows = await _db.Database.SqlQueryRaw<string>($@"
-                SELECT CAST(OrderId AS nvarchar(36)) AS [Value]
-                FROM dbo.Orders
-                WHERE TenantId = {{0}}
-                ORDER BY CreatedAt DESC", tenantId).ToListAsync(ct);
-
-            return rows.Cast<object>().ToList();
+            return await _db.Orders.AsNoTracking()
+                .Where(x => x.TenantId == tenantId)
+                .OrderByDescending(x => x.CreatedAt)
+                .Select(x => new TenantOrderRowDto
+                {
+                    OrderId = x.OrderId,
+                    SalesOrderNo = x.SalesOrderNo,
+                    AgreementId = x.ContractId,
+                    Domain = x.Domain,
+                    SalesDate = x.SalesDate,
+                    Qty = x.Qty,
+                    TotalPayable = x.TotalPayable,
+                    NetPayable = x.NetPayable,
+                    Status = (int)x.Status,
+                    CreatedAt = x.CreatedAt
+                })
+                .ToListAsync(ct);
         }
     }
 }

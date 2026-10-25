@@ -8,6 +8,7 @@ using TenantPortal.Application.Interfaces.Identity;
 using TenantPortal.Application.Interfaces.Repositories;
 using TenantPortal.Application.Interfaces.Services;
 using TenantPortal.Domain.Entities;
+using TenantPortal.Domain.Entities.Rbac;
 using TenantPortal.Infrastructure.Persistence;
 
 
@@ -26,12 +27,9 @@ namespace TenantPortal.Infrastructure.Services
         private readonly IEmailSender _email;
         private readonly IInvitationRepository _invites; // reuse existing if present
         private readonly ITenantProvisioningService _provisioning;
+        private readonly ISessionRepository _sessions;
 
-        private const string ROLE_ENV = "environment_manager";
-
-        private const string USER_PENDING_APPROVAL = "Pending Approval";
-        private const string USER_PENDING = "Pending";
-        private const string USER_REJECTED = "Rejected";
+        private const string ROLE_ENV = "TenantAdmin";
 
         private const string AR_PENDING = "pending";
         private const string AR_APPROVED = "approved";
@@ -46,7 +44,8 @@ namespace TenantPortal.Infrastructure.Services
             IPasswordHasher hasher,
             IEmailSender email,
             IInvitationRepository invites,
-            ITenantProvisioningService provisioning)
+            ITenantProvisioningService provisioning,
+            ISessionRepository sessions)
         {
             _db = db;
             _uow = uow;
@@ -57,6 +56,7 @@ namespace TenantPortal.Infrastructure.Services
             _email = email;
             _invites = invites;
             _provisioning = provisioning;
+            _sessions = sessions;
         }
 
         public async Task<CreateTenantUserResponse> CreateAsync(
@@ -94,26 +94,25 @@ namespace TenantPortal.Infrastructure.Services
             if (tenant == null)
                 throw new DomainException("TENANT_REQUIRED", "Please select a tenant.");
 
-            if (!string.Equals(tenant.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            if (tenant.Status != TenantStatus.Active)
                 throw new DomainException("TENANT_NOT_ACTIVE", "Please select a tenant.");
 
             // Duplicate email check
             if (await _users.EmailExistsAsync(email, ct))
                 throw new DomainException("EMAIL_EXISTS", "A user with this email address already exists.");
 
-            // Agent/Manager country scope enforcement (platform roles)
+            // Subscription-staff country scope enforcement (platform roles)
             // Owner is global.
-            var isOwner = actorRole.Equals("owner", StringComparison.OrdinalIgnoreCase);
-            var isManager = actorRole.Equals("subscription_manager", StringComparison.OrdinalIgnoreCase);
-            var isAgent = actorRole.Equals("subscription_agent", StringComparison.OrdinalIgnoreCase);
+            var isOwner = actorRole.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase);
+            var isSubscriptionStaff = actorRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
 
-            if (!isOwner && (isManager || isAgent))
+            if (!isOwner && isSubscriptionStaff)
             {
                 var roleId = await _authz.ResolveRoleIdBySlugAsync(actorRole, ct);
                 if (roleId is null) throw new ForbiddenException("Role mapping missing.");
 
                 var allowed = await _authz.GetUserCountriesAsync(actorUserId, roleId.Value, ct);
-                if (tenant.CountryId.HasValue && !allowed.Contains(tenant.CountryId.Value))
+                if (!allowed.Contains(tenant.CountryId))
                     throw new ForbiddenException("Country not in scope.");
             }
 
@@ -127,8 +126,9 @@ namespace TenantPortal.Infrastructure.Services
                 Email = email,
                 Password = Array.Empty<byte>(), // set after manager approval
                 TenantId = tenantId.Value,
-                Role = ROLE_ENV,
-                Status = USER_PENDING_APPROVAL,
+                RoleId = WellKnownRoles.EnvironmentManager,
+                Status = UserAccountStatus.PendingApproval,
+                IsAllowedToLoginToHub = true,
                 FailedLoginCount = 0,
                 IsDeleted = false,
                 Date = DateTime.UtcNow
@@ -170,16 +170,16 @@ namespace TenantPortal.Infrastructure.Services
             return new CreateTenantUserResponse
             {
                 UserId = userId,
-                Status = USER_PENDING_APPROVAL
+                Status = UserAccountStatus.PendingApproval.ToString()
             };
         }
 
         public async Task ApproveAsync(Guid userId, Guid actorUserId, string actorRole, CancellationToken ct)
         {
-            var isOwner = actorRole.Equals("owner", StringComparison.OrdinalIgnoreCase);
-            var isManager = actorRole.Equals("subscription_manager", StringComparison.OrdinalIgnoreCase);
-            if (!isOwner && !isManager)
-                throw new ForbiddenException("Only Owner or Subscription Manager can approve.");
+            var isOwner = actorRole.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase);
+            var isSubscriptionStaff = actorRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+            if (!isOwner && !isSubscriptionStaff)
+                throw new ForbiddenException("Only Owner or Subscription staff can approve.");
 
             var user = await _users.FindByIdAsync(userId, ct) ?? throw new NotFoundException("User", userId);
             if (!user.TenantId.HasValue)
@@ -189,15 +189,15 @@ namespace TenantPortal.Infrastructure.Services
                 .FirstOrDefaultAsync(t => t.TenantId == user.TenantId.Value, ct)
                 ?? throw new NotFoundException("Tenant", user.TenantId.Value);
 
-            // Manager country scope enforcement
+            // Subscription-staff country scope enforcement
             if (!isOwner)
             {
-                var roleId = await _authz.ResolveRoleIdBySlugAsync("subscription_manager", ct);
+                var roleId = await _authz.ResolveRoleIdBySlugAsync("Admin", ct);
                 if (roleId is null) throw new ForbiddenException("Role mapping missing.");
 
                 var allowed = await _authz.GetUserCountriesAsync(actorUserId, roleId.Value, ct);
-                if (tenant.CountryId.HasValue && !allowed.Contains(tenant.CountryId.Value))
-                    throw new ForbiddenException("Tenant country not in manager scope.");
+                if (!allowed.Contains(tenant.CountryId))
+                    throw new ForbiddenException("Tenant country not in scope.");
             }
 
             var pending = await _approvals.FindPendingAsync(userId, user.TenantId.Value, ct);
@@ -240,7 +240,7 @@ Invitation token valid for 48 hours.";
             pending.ReviewedBy = actorUserId;
             pending.ReviewedAt = DateTime.UtcNow;
 
-            user.Status = USER_PENDING; // per requirement: after invitation is sent
+            user.Status = UserAccountStatus.Pending; // per requirement: after invitation is sent
 
             await _uow.BeginTransactionAsync();
             try
@@ -262,10 +262,10 @@ Invitation token valid for 48 hours.";
             if (string.IsNullOrWhiteSpace(req.RejectionReason))
                 throw new DomainException("REJECTION_REASON_REQUIRED", "Rejection reason is required.");
 
-            var isOwner = actorRole.Equals("owner", StringComparison.OrdinalIgnoreCase);
-            var isManager = actorRole.Equals("subscription_manager", StringComparison.OrdinalIgnoreCase);
-            if (!isOwner && !isManager)
-                throw new ForbiddenException("Only Owner or Subscription Manager can reject.");
+            var isOwner = actorRole.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase);
+            var isSubscriptionStaff = actorRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+            if (!isOwner && !isSubscriptionStaff)
+                throw new ForbiddenException("Only Owner or Subscription staff can reject.");
 
             var user = await _users.FindByIdAsync(userId, ct) ?? throw new NotFoundException("User", userId);
             if (!user.TenantId.HasValue)
@@ -277,12 +277,12 @@ Invitation token valid for 48 hours.";
 
             if (!isOwner)
             {
-                var roleId = await _authz.ResolveRoleIdBySlugAsync("subscription_manager", ct);
+                var roleId = await _authz.ResolveRoleIdBySlugAsync("Admin", ct);
                 if (roleId is null) throw new ForbiddenException("Role mapping missing.");
 
                 var allowed = await _authz.GetUserCountriesAsync(actorUserId, roleId.Value, ct);
-                if (tenant.CountryId.HasValue && !allowed.Contains(tenant.CountryId.Value))
-                    throw new ForbiddenException("Tenant country not in manager scope.");
+                if (!allowed.Contains(tenant.CountryId))
+                    throw new ForbiddenException("Tenant country not in scope.");
             }
 
             var pending = await _approvals.FindPendingAsync(userId, user.TenantId.Value, ct);
@@ -294,7 +294,7 @@ Invitation token valid for 48 hours.";
             pending.ReviewedBy = actorUserId;
             pending.ReviewedAt = DateTime.UtcNow;
 
-            user.Status = USER_REJECTED;
+            user.Status = UserAccountStatus.Rejected;
 
             await _uow.BeginTransactionAsync();
             try
@@ -309,6 +309,8 @@ Invitation token valid for 48 hours.";
                 await _uow.RollbackTransactionAsync();
                 throw;
             }
+
+            await _sessions.RevokeAllForUserAsync(userId, ct);
         }
 
         private static string GeneratePassword(int len)

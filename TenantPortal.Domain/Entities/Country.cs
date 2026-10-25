@@ -12,6 +12,9 @@ namespace TenantPortal.Domain.Entities
         [Required, MaxLength(10)]
         public string CountryCode { get; set; } = default!;
 
-        public Guid? RegionId { get; set; }
+        [Required, MaxLength(150)]
+        public string Name { get; set; } = default!;
+
+        public ICollection<Tenant> Tenants { get; set; } = new List<Tenant>();
     }
 }

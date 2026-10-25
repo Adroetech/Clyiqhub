@@ -14,7 +14,7 @@ namespace TenantPortal.Application.Validators
             RuleFor(x => x.CountryId).NotEmpty();
             RuleFor(x => x.City).GreaterThan(0);
             RuleFor(x => x.LanguageId).GreaterThan(0);
-            RuleFor(x => x.BackupPlan).NotEmpty().MaximumLength(20);
+            RuleFor(x => x.BackupPlan).IsInEnum();
             RuleFor(x => x.Timezone).NotEmpty().MaximumLength(100);
             RuleFor(x => x.Address).NotEmpty().MaximumLength(255);
             RuleFor(x => x.PrimaryContact).NotEmpty().MaximumLength(150);

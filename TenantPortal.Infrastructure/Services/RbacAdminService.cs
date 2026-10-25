@@ -1,6 +1,8 @@
 ﻿
 using TenantPortal.Application.DTOs.Rbac;
 using TenantPortal.Application.Exceptions;
+using TenantPortal.Application.Interfaces;
+using TenantPortal.Application.Interfaces.Identity;
 using TenantPortal.Application.Interfaces.Repositories;
 using TenantPortal.Application.Interfaces.Services;
 
@@ -10,16 +12,20 @@ namespace TenantPortal.Infrastructure.Services
     {
         private readonly IRbacAdminRepository _repo;
         private readonly IPermissionCacheInvalidator _cacheInvalidator;
+        private readonly IPasswordHasher _hasher;
+        private readonly ISessionRepository _sessions;
 
-        public RbacAdminService(IRbacAdminRepository repo, IPermissionCacheInvalidator cacheInvalidator)
+        public RbacAdminService(IRbacAdminRepository repo, IPermissionCacheInvalidator cacheInvalidator, IPasswordHasher hasher, ISessionRepository sessions)
         {
             _repo = repo;
             _cacheInvalidator = cacheInvalidator;
+            _hasher = hasher;
+            _sessions = sessions;
         }
 
         private static void RequireOwner(string roleSlug)
         {
-            if (!string.Equals(roleSlug, "owner", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(roleSlug, "SuperAdmin", StringComparison.OrdinalIgnoreCase))
                 throw new ForbiddenException("You do not have permission to perform this action.");
         }
 
@@ -33,13 +39,16 @@ namespace TenantPortal.Infrastructure.Services
         public Task<RolePermissionsDto> GetRolePermissionsAsync(int roleId, CancellationToken ct)
             => _repo.GetRolePermissionsAsync(roleId, ct);
 
+        public Task<IReadOnlyList<PlatformUserDto>> GetUsersAsync(CancellationToken ct)
+            => _repo.GetUsersAsync(ct);
+
         public Task<IReadOnlyList<int>> GetUserRolesAsync(Guid userId, CancellationToken ct)
             => _repo.GetUserRoleIdsAsync(userId, ct);
 
         public async Task<int> CreateRoleAsync(CreateRoleRequest req, Guid actorUserId, string actorRole, CancellationToken ct)
         {
             RequireOwner(actorRole);
-            var roleId = await _repo.CreateRoleAsync(req.Name, req.Slug, req.Level, req.IsActive, req.ProcessPermissionIds, actorUserId, ct);
+            var roleId = await _repo.CreateRoleAsync(req.Name, req.Slug, req.RoleType, req.IsActive, req.ProcessPermissionIds, actorUserId, ct);
 
             _cacheInvalidator.InvalidateRole(roleId); // new role
             return roleId;
@@ -93,6 +102,10 @@ namespace TenantPortal.Infrastructure.Services
             await _repo.ReplaceUserRolesAsync(userId, requested, actorUserId, ct);
             _cacheInvalidator.InvalidateUser(userId);
 
+            // A role change must take effect immediately, not whenever the
+            // user's current access token happens to expire on its own.
+            await _sessions.RevokeAllForUserAsync(userId, ct);
+
             return new UpdateResultDto
             {
                 Changed = true,
@@ -100,5 +113,25 @@ namespace TenantPortal.Infrastructure.Services
             };
         }
 
+        public async Task<Guid> CreateUserAsync(CreateUserRequest req, Guid actorUserId, string actorRole, CancellationToken ct)
+        {
+            RequireOwner(actorRole);
+
+            if (await _repo.EmailExistsAsync(req.Email, ct))
+                throw new DomainException("EMAIL_EXISTS", "A user with this email address already exists.");
+
+            if (await _repo.GetRoleTypeAsync(req.RoleId, ct) is null)
+                throw new DomainException("INVALID_ROLE", "Role not found.");
+
+            // Linking to a tenant is optional for every role — it scopes
+            // permission checks only for TenantAdmin (see PermissionAuthorizer),
+            // but any role may be tagged with a tenant for reference.
+            var passwordHash = _hasher.Hash(req.Password);
+
+            var userId = await _repo.CreateUserAsync(req.Name.Trim(), req.Email.Trim(), passwordHash, req.RoleId, req.TenantId, actorUserId, ct);
+            _cacheInvalidator.InvalidateUser(userId);
+
+            return userId;
+        }
     }
 }

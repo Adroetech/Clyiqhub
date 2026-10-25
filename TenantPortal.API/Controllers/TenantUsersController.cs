@@ -25,7 +25,6 @@ namespace TenantPortal.API.Controllers
         /// Status must be "Pending Approval" and approval request must be created.
         /// </summary>
         [HttpPost]
-        [RequirePermission("user", "create")]
         public async Task<IActionResult> Create([FromBody] CreateTenantUserRequest req, CancellationToken ct)
         {
             var res = await _svc.CreateAsync(req, CurrentUserId, RoleSlug, TenantIdFromJwt, ct);
@@ -37,7 +36,6 @@ namespace TenantPortal.API.Controllers
         /// Triggers provisioning + invitation token + email + sets status to Pending.
         /// </summary>
         [HttpPut("{userId:guid}/approve")]
-        [RequirePermission("subscription_request", "approve")]
         public async Task<IActionResult> Approve([FromRoute] Guid userId, CancellationToken ct)
         {
             await _svc.ApproveAsync(userId, CurrentUserId, RoleSlug, ct);
@@ -49,7 +47,6 @@ namespace TenantPortal.API.Controllers
         /// Sets user status to Rejected. No provisioning/invite.
         /// </summary>
         [HttpPut("{userId:guid}/reject")]
-        [RequirePermission("subscription_request", "approve")]
         public async Task<IActionResult> Reject([FromRoute] Guid userId, [FromBody] RejectUserRequest req, CancellationToken ct)
         {
             await _svc.RejectAsync(userId, req, CurrentUserId, RoleSlug, ct);

@@ -20,6 +20,12 @@ namespace TenantPortal.Infrastructure.Repositories
             return _db.InvitationTokens.FirstOrDefaultAsync(t => t.TokenHash == h && t.UsedAt == null && t.ExpiresAt > DateTime.UtcNow, ct);
         }
 
+        public Task<InvitationToken?> FindByTokenAnyStateAsync(string token, CancellationToken ct)
+        {
+            var h = Hash(token);
+            return _db.InvitationTokens.FirstOrDefaultAsync(t => t.TokenHash == h, ct);
+        }
+
         public async Task MarkUsedAsync(Guid tokenId, CancellationToken ct)
         {
             var t = await _db.InvitationTokens.FirstAsync(x => x.TokenId == tokenId, ct);
