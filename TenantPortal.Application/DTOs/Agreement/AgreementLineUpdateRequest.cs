@@ -7,6 +7,5 @@ namespace TenantPortal.Application.DTOs.Agreement
         public string Billing { get; set; } = default!;
         public decimal? DiscountPercent { get; set; }
         public decimal? DiscountAmount { get; set; }
-        public string Status { get; set; } = default!;
     }
 }

@@ -33,7 +33,7 @@ namespace TenantPortal.Infrastructure.Repositories
         {
             return await _db.SysUserInfo.AsNoTracking()
                 .Where(x => x.TenantId == tenantId && !x.IsDeleted)
-                .OrderBy(x => x.Email)
+                .OrderByDescending(x => x.Date)
                 .ToListAsync(ct);
         }
     }

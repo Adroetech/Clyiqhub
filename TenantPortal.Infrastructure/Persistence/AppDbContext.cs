@@ -56,14 +56,15 @@ namespace TenantPortal.Infrastructure.Persistence
         public DbSet<Region> Regions => Set<Region>();
         public DbSet<PaymentTermOption> PaymentTerms => Set<PaymentTermOption>();
         public DbSet<Order> Orders => Set<Order>();
+        public DbSet<TaxGroup> TaxGroups => Set<TaxGroup>();
         public DbSet<Transaction> Transactions => Set<Transaction>();
         public DbSet<BillingAccount> BillingAccounts => Set<BillingAccount>();
         public DbSet<Segment> Segments => Set<Segment>();
         public DbSet<CurrencyLookup> Currencies => Set<CurrencyLookup>();
 
         public DbSet<PriceListItem> PriceListItems => Set<PriceListItem>();
-        public DbSet<PriceListEntry> PriceListEntries => Set<PriceListEntry>();
         public DbSet<KnownDevice> KnownDevices => Set<KnownDevice>();
+        public DbSet<ErpEnvironmentDbMap> ErpEnvironmentDbMaps => Set<ErpEnvironmentDbMap>();
 
 
 
@@ -79,6 +80,7 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.ToTable("Country", "dbo");
                 e.HasKey(x => x.CountryId);
                 e.Property(x => x.CountryCode).HasMaxLength(10).IsRequired();
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
             });
 
             b.Entity<City>(e =>
@@ -86,6 +88,7 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.ToTable("City", "dbo");
                 e.HasKey(x => x.CityId);
                 e.Property(x => x.CityName).HasMaxLength(100).IsRequired();
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
             });
 
             b.Entity<Language>(e =>
@@ -95,6 +98,7 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.Property(x => x.LanguageCode).HasMaxLength(10).IsRequired();
                 e.Property(x => x.LanguageName).HasMaxLength(100).IsRequired();
                 e.Property(x => x.SelectByDefault).IsRequired().HasDefaultValue(false);
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
             });
 
             // SysUserInfo
@@ -160,6 +164,7 @@ namespace TenantPortal.Infrastructure.Persistence
             b.Entity<PaymentTermOption>(e =>
             {
                 e.HasIndex(x => x.Code).IsUnique().HasDatabaseName("UX_PaymentTerms_Code");
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
             });
 
             b.Entity<Country>(e =>
@@ -208,6 +213,7 @@ namespace TenantPortal.Infrastructure.Persistence
 
                 // Optional: precision warning fix
                 e.Property(x => x.Price).HasPrecision(18, 2);
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
 
                 // If AvailableQty is computed in DB, keep this to avoid EF writing it
                 e.Property(x => x.AvailableQty)
@@ -268,8 +274,8 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.Property(x => x.BillingFrequency).HasConversion<int>().IsRequired();
                 e.Property(x => x.Segment).HasConversion<int>().IsRequired();
                 e.Property(x => x.Category).HasConversion<int>().IsRequired();
-                e.Property(x => x.PurchasePrice).HasPrecision(18, 2);
                 e.Property(x => x.SalesPrice).HasPrecision(18, 2);
+                e.Property(x => x.Currency).HasMaxLength(10);
                 e.Property(x => x.Status).HasConversion<int>().IsRequired();
                 e.HasIndex(x => x.Sku).IsUnique();
             });
@@ -280,6 +286,19 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.HasKey(x => x.Id);
                 e.Property(x => x.DeviceFingerprint).HasMaxLength(64).IsRequired();
                 e.HasIndex(x => new { x.UserId, x.DeviceFingerprint }).IsUnique();
+            });
+
+            b.Entity<ErpEnvironmentDbMap>(e =>
+            {
+                e.ToTable("ErpEnvironmentDbMap", "dbo");
+                e.HasKey(x => x.TenantId);
+                e.Property(x => x.CoreDbName).HasMaxLength(128).IsRequired();
+                e.Property(x => x.TxnDbName).HasMaxLength(128).IsRequired();
+                e.Property(x => x.RptDbName).HasMaxLength(128);
+                e.Property(x => x.Status).HasMaxLength(32).IsRequired();
+                e.Property(x => x.Subdomain).HasMaxLength(100);
+                e.Property(x => x.CreatedBy).HasMaxLength(100);
+                e.Property(x => x.CreatedAtUtc).HasDefaultValueSql("SYSUTCDATETIME()");
             });
 
             b.Entity<PasswordResetToken>(e =>
@@ -343,8 +362,8 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.ToTable("Agreements", "dbo");
                 e.HasKey(x => x.AgreementId);
                 e.Property(x => x.Status).HasConversion<byte>().IsRequired();
-                e.Property(x => x.AgreementNo).HasMaxLength(50).IsRequired();
-                e.HasIndex(x => x.AgreementNo).IsUnique();
+                e.Property(x => x.AgreementCode).HasMaxLength(50).IsRequired();
+                e.HasIndex(x => x.AgreementCode).IsUnique();
                 // ContractNumber ("Agreement Reference") is now optional —
                 // was required+unique when it was the primary identifier.
                 // Admin Manual (25-10-2026) §2.4 Agreement Detail: "80
@@ -359,21 +378,40 @@ namespace TenantPortal.Infrastructure.Persistence
                 e.HasKey(x => x.Id);
                 e.Property(x => x.Name).HasMaxLength(150).IsRequired();
                 e.HasIndex(x => x.Name).IsUnique();
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
             });
 
-            // Orders
+            // Orders — Admin Manual (26-10-2026) §3: one order fulfils
+            // exactly one Agreement Line, so its fields live directly here
+            // (formerly a separate OrderLines table, merged for a 1:1 relationship).
             b.Entity<Order>(e =>
             {
                 e.ToTable("Orders", "dbo");
                 e.HasKey(x => x.OrderId);
+                e.Property(x => x.OrderNo).HasMaxLength(50).IsRequired();
+                e.HasIndex(x => x.OrderNo).IsUnique();
                 e.Property(x => x.Status).HasConversion<byte>().IsRequired();
+                e.Property(x => x.PaymentStatus).HasConversion<byte>().IsRequired();
+                e.HasIndex(x => x.AgreementLineId).HasDatabaseName("IX_Orders_AgreementLineId");
+                e.Property(x => x.Quantity).HasPrecision(18, 2);
+                e.Property(x => x.ListPrice).HasPrecision(18, 2);
+                e.Property(x => x.DiscountPercent).HasPrecision(18, 2);
+                e.Property(x => x.DiscountAmount).HasPrecision(18, 2);
                 e.Property(x => x.UnitPrice).HasPrecision(18, 2);
-                e.Property(x => x.Discount).HasPrecision(18, 2);
-                e.Property(x => x.TaxPercent).HasPrecision(18, 2);
-                e.Property(x => x.Price).HasPrecision(18, 2);
-                e.Property(x => x.VatAmount).HasPrecision(18, 2);
-                e.Property(x => x.TotalPayable).HasPrecision(18, 2);
-                e.Property(x => x.NetPayable).HasPrecision(18, 2);
+                e.Property(x => x.Amount).HasPrecision(18, 2);
+                e.Property(x => x.TaxRate).HasPrecision(18, 2);
+                e.Property(x => x.TaxAmount).HasPrecision(18, 2);
+                e.Property(x => x.TotalAmount).HasPrecision(18, 2);
+            });
+
+            b.Entity<TaxGroup>(e =>
+            {
+                e.ToTable("TaxGroups", "dbo");
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Code).HasMaxLength(20).IsRequired();
+                e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+                e.Property(x => x.Rate).HasPrecision(5, 2);
+                e.HasIndex(x => x.Code).IsUnique();
             });
 
             // Transactions
@@ -399,6 +437,12 @@ namespace TenantPortal.Infrastructure.Persistence
             {
                 e.ToTable("Segments", "dbo");
                 e.HasKey(x => x.SegmentId);
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+            });
+
+            b.Entity<Region>(e =>
+            {
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
             });
 
             // Currency
@@ -406,18 +450,6 @@ namespace TenantPortal.Infrastructure.Persistence
             {
                 e.ToTable("Currency", "dbo");
                 e.HasKey(x => x.CurrencyId);
-            });
-
-            // PriceList — Admin Manual §8 pricing table (Subscription Plan x
-            // Country -> Price), distinct from the PriceListItem product
-            // catalog below. Maps the pre-existing dbo.PriceList table.
-            b.Entity<PriceListEntry>(e =>
-            {
-                e.ToTable("PriceList", "dbo");
-                e.HasKey(x => x.Id);
-                e.Property(x => x.Currency).HasMaxLength(10).IsRequired();
-                e.Property(x => x.Price).HasPrecision(10, 2);
-                e.Property(x => x.Status).HasConversion<byte>().IsRequired();
             });
 
             // Invoices — add the precision/key config the bare block above was missing.
@@ -430,7 +462,12 @@ namespace TenantPortal.Infrastructure.Persistence
 
             b.Entity<SysProcessPermission>().HasIndex(x => new { x.ProcessId, x.PermissionId }).IsUnique();
             b.Entity<SysRolePermission>().HasIndex(x => new { x.RoleId, x.ProcessPermissionId }).IsUnique();
-            b.Entity<SysUserRoleDetail>().HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
+            // One role per user: unique on UserId alone (not UserId+RoleId —
+            // that only prevented the SAME role being assigned twice, not a
+            // second DIFFERENT role). SysUserInfo.RoleId is the real source
+            // of truth; this table is now just a one-row-per-user audit
+            // trail (AssignedBy/AssignedAt) kept in sync with it.
+            b.Entity<SysUserRoleDetail>().HasIndex(x => x.UserId).IsUnique();
 
         }
     }

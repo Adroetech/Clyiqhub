@@ -9,14 +9,18 @@ using TenantPortal.Domain.Entities.Rbac;
 
 namespace TenantPortal.API.Controllers
 {
-    // Standalone "Orders" sidebar screen (Admin Manual §6) — separate from
+    // Standalone "Orders" sidebar screen (Admin Manual §3) — separate from
     // the nested api/tenants/{tenantId}/orders endpoints on
     // TenantDetailController, which stay as the read-only source for the
     // Tenant page's Orders section.
     [ApiController]
     [Route("api/orders")]
     [Authorize]
-    [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
+    // Role x Function matrix: "Manage orders"/"Confirm/cancel order" =
+    // Own-tenant/Permission-based for TenantAdmin, create/edit (no approve)
+    // for TenantUser — [RequirePermission] per action is what narrows this,
+    // since TenantUser is never granted "order.approve".
+    [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin, RoleType.TenantAdmin, RoleType.TenantUser)]
     public class OrdersController : ControllerBase
     {
         private readonly IOrdersService _svc;
@@ -25,11 +29,20 @@ namespace TenantPortal.API.Controllers
         private Guid CurrentUserId => Guid.Parse(User.FindFirst("user_id")!.Value);
         private string RoleSlug => User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? "";
 
+        private Guid? CurrentTenantId
+        {
+            get
+            {
+                var raw = User.FindFirst("tenant_id")?.Value;
+                return Guid.TryParse(raw, out var v) ? v : null;
+            }
+        }
+
         [HttpGet]
         [RequirePermission("order", "view")]
         public async Task<IActionResult> List([FromQuery] OrderQuery q, CancellationToken ct)
         {
-            var (total, rows) = await _svc.ListAsync(q, ct);
+            var (total, rows) = await _svc.ListAsync(q, CurrentTenantId, ct);
             return Ok(ApiListResponse<OrderListItemDto>.Success(rows.ToList(), total, q.Page, q.PageSize));
         }
 
@@ -37,7 +50,7 @@ namespace TenantPortal.API.Controllers
         [RequirePermission("order", "view")]
         public async Task<IActionResult> GetById([FromRoute] Guid id, CancellationToken ct)
         {
-            var dto = await _svc.GetAsync(id, ct);
+            var dto = await _svc.GetAsync(id, CurrentTenantId, ct);
             return dto == null
                 ? NotFound(ApiResult.Failure("Order not found."))
                 : Ok(ApiResponse<OrderListItemDto>.Success(dto));
@@ -67,20 +80,36 @@ namespace TenantPortal.API.Controllers
             return Ok(ApiResult.Success("Order deleted successfully."));
         }
 
-        [HttpPut("{id:guid}/approve")]
+        [HttpPut("{id:guid}/confirm")]
         [RequirePermission("order", "approve")]
-        public async Task<IActionResult> Approve([FromRoute] Guid id, CancellationToken ct)
+        public async Task<IActionResult> Confirm([FromRoute] Guid id, CancellationToken ct)
         {
-            await _svc.ApproveAsync(id, CurrentUserId, RoleSlug, ct);
-            return Ok(ApiResult.Success("Order approved successfully."));
+            await _svc.ConfirmAsync(id, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Order confirmed successfully."));
         }
 
-        [HttpPut("{id:guid}/reject")]
+        [HttpPut("{id:guid}/cancel")]
         [RequirePermission("order", "approve")]
-        public async Task<IActionResult> Reject([FromRoute] Guid id, CancellationToken ct)
+        public async Task<IActionResult> Cancel([FromRoute] Guid id, CancellationToken ct)
         {
-            await _svc.RejectAsync(id, CurrentUserId, RoleSlug, ct);
-            return Ok(ApiResult.Success("Order rejected successfully."));
+            await _svc.CancelAsync(id, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Order cancelled successfully."));
+        }
+
+        [HttpPut("{id:guid}/invoice")]
+        [RequirePermission("order", "approve")]
+        public async Task<IActionResult> MarkInvoiced([FromRoute] Guid id, CancellationToken ct)
+        {
+            await _svc.MarkInvoicedAsync(id, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Order invoiced successfully."));
+        }
+
+        [HttpPut("{id:guid}/complete")]
+        [RequirePermission("order", "approve")]
+        public async Task<IActionResult> Complete([FromRoute] Guid id, CancellationToken ct)
+        {
+            await _svc.CompleteAsync(id, CurrentUserId, RoleSlug, ct);
+            return Ok(ApiResult.Success("Order completed successfully."));
         }
 
         // "The final process" diagram, step 4 — the billing/provisioning
@@ -100,6 +129,14 @@ namespace TenantPortal.API.Controllers
         {
             await _svc.MarkInvoiceCreditApprovedAsync(id, CurrentUserId, RoleSlug, ct);
             return Ok(ApiResult.Success("Invoice marked as credit approved."));
+        }
+
+        [HttpGet("tax-groups")]
+        [RequirePermission("order", "view")]
+        public async Task<IActionResult> GetTaxGroups(CancellationToken ct)
+        {
+            var groups = await _svc.GetTaxGroupsAsync(ct);
+            return Ok(groups);
         }
     }
 }

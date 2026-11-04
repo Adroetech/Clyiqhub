@@ -12,8 +12,13 @@ namespace TenantPortal.Application.DTOs.Agreement
 
         public Guid VendorId { get; set; }
 
+        // "Agreement ID" in the UI — suggested automatically (see
+        // IAgreementsService.GenerateNextAgreementCodeAsync) and editable
+        // by the user before saving, same pattern as Tenant.TenantCode.
+        public string AgreementCode { get; set; } = default!;
+
         // Optional external reference (was "Contract ID", the required
-        // unique identifier, before Admin Manual 20-10-2026 — AgreementNo
+        // unique identifier, before Admin Manual 20-10-2026 — AgreementCode
         // is now the real, system-generated identifier).
         public string? ContractNumber { get; set; }
 

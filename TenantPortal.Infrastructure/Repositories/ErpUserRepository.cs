@@ -98,10 +98,16 @@ namespace TenantPortal.Infrastructure.Repositories
 
         public async Task<IReadOnlyList<UserLicenseRowDto>> ListAllAsync(Guid? tenantId, CancellationToken ct)
         {
+            // Inner join on TenantId already excludes platform-level accounts
+            // (SuperAdmin/Admin/PlatformUser all have TenantId == null) — no
+            // RoleId filter needed to keep this tenant-scoped. Shows every
+            // tenant-side account (TenantAdmin + TenantUser), not just
+            // ERP-invited employees, so a tenant with an Admin but zero
+            // invited employees isn't shown as having no users at all.
             var query =
                 from u in _db.SysUserInfo.AsNoTracking()
                 join t in _db.Tenants.AsNoTracking() on u.TenantId equals t.TenantId
-                where u.RoleId == WellKnownRoles.TenantUser && !u.IsDeleted
+                where !u.IsDeleted
                 select new { u, t };
 
             if (tenantId.HasValue)

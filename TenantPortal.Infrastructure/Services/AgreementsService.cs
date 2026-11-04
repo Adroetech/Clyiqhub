@@ -51,13 +51,28 @@ namespace TenantPortal.Infrastructure.Services
                 throw new ForbiddenException("Tenant country not in scope.");
         }
 
-        private async Task<string> NextAgreementNoAsync(CancellationToken ct)
+        private const string AgreementCodePrefix = "AGR-";
+
+        // Suggested value for the Create form — "highest existing numeric
+        // suffix + 1", not a row count, same pattern as
+        // TenantService.GenerateNextTenantCodeAsync — stays correct even
+        // after an admin overrides the suggestion to a non-sequential code.
+        public async Task<string> GenerateNextAgreementCodeAsync(CancellationToken ct)
         {
-            // Admin Manual (20-10-2026) §2.4: "System-generated, for example
-            // AGR-000001" — a simple incrementing sequence, not date-based
-            // like Order's SalesOrderNo.
-            var count = await _db.Agreements.CountAsync(ct);
-            return $"AGR-{(count + 1):D6}";
+            var codes = await _db.Agreements.AsNoTracking()
+                .Where(a => a.AgreementCode.StartsWith(AgreementCodePrefix))
+                .Select(a => a.AgreementCode)
+                .ToListAsync(ct);
+
+            var maxSuffix = 0;
+            foreach (var code in codes)
+            {
+                var suffix = code[AgreementCodePrefix.Length..];
+                if (int.TryParse(suffix, out var n) && n > maxSuffix)
+                    maxSuffix = n;
+            }
+
+            return $"{AgreementCodePrefix}{(maxSuffix + 1):D6}";
         }
 
         private IQueryable<AgreementListItemDto> ProjectedQuery() =>
@@ -69,12 +84,19 @@ namespace TenantPortal.Infrastructure.Services
             from c in countries.DefaultIfEmpty()
             join r in _db.Regions.AsNoTracking() on a.RegionId equals r.Id into regions
             from r in regions.DefaultIfEmpty()
+            join cu in _db.SysUserInfo.AsNoTracking() on a.CreatedBy equals cu.UserId into createdUsers
+            from cu in createdUsers.DefaultIfEmpty()
+            join au in _db.SysUserInfo.AsNoTracking() on a.ApprovedBy equals au.UserId into approvedUsers
+            from au in approvedUsers.DefaultIfEmpty()
+            join ru in _db.SysUserInfo.AsNoTracking() on a.RejectedBy equals ru.UserId into rejectedUsers
+            from ru in rejectedUsers.DefaultIfEmpty()
             select new AgreementListItemDto
             {
                 Id = a.AgreementId,
-                AgreementNo = a.AgreementNo,
+                AgreementCode = a.AgreementCode,
                 ContractNumber = a.ContractNumber,
                 TenantId = a.TenantId,
+                TenantCode = t.TenantCode,
                 TenantName = t.TenantName,
                 Domain = t.Domain,
                 VendorId = a.VendorId,
@@ -98,21 +120,33 @@ namespace TenantPortal.Infrastructure.Services
                 Remark = a.Remark,
                 Notes = a.Notes,
                 Status = (int)a.Status,
-                CreatedAt = a.CreatedAt
+                CreatedAt = a.CreatedAt,
+                CreatedByName = cu != null ? cu.Name : null,
+                ApprovedAt = a.ApprovedAt,
+                ApprovedByName = au != null ? au.Name : null,
+                RejectedAt = a.RejectedAt,
+                RejectedByName = ru != null ? ru.Name : null
             };
 
-        public async Task<(int total, IReadOnlyList<AgreementListItemDto> rows)> ListAsync(AgreementQuery q, CancellationToken ct)
+        public async Task<(int total, IReadOnlyList<AgreementListItemDto> rows)> ListAsync(AgreementQuery q, Guid? callerTenantId, CancellationToken ct)
         {
             q.Page = Math.Max(1, q.Page);
             q.PageSize = Math.Clamp(q.PageSize, 1, 200);
 
             var query = ProjectedQuery();
 
+            // Role x Function matrix: "Manage agreements" = "View own
+            // tenant" for TenantAdmin/TenantUser — callerTenantId is only
+            // ever populated for those two roles (from the JWT tenant_id
+            // claim), never for SuperAdmin/Admin.
+            if (callerTenantId.HasValue)
+                query = query.Where(a => a.TenantId == callerTenantId.Value);
+
             if (!string.IsNullOrWhiteSpace(q.Search))
             {
                 var s = q.Search.Trim().ToLowerInvariant();
                 query = query.Where(a =>
-                    a.AgreementNo.ToLower().Contains(s) ||
+                    a.AgreementCode.ToLower().Contains(s) ||
                     (a.ContractNumber != null && a.ContractNumber.ToLower().Contains(s)) ||
                     a.TenantName.ToLower().Contains(s) ||
                     a.Email.ToLower().Contains(s));
@@ -138,8 +172,13 @@ namespace TenantPortal.Infrastructure.Services
             return (total, rows);
         }
 
-        public async Task<AgreementListItemDto?> GetAsync(Guid id, CancellationToken ct) =>
-            await ProjectedQuery().FirstOrDefaultAsync(a => a.Id == id, ct);
+        public async Task<AgreementListItemDto?> GetAsync(Guid id, Guid? callerTenantId, CancellationToken ct)
+        {
+            var dto = await ProjectedQuery().FirstOrDefaultAsync(a => a.Id == id, ct);
+            if (dto is null) return null;
+            if (callerTenantId.HasValue && dto.TenantId != callerTenantId.Value) return null;
+            return dto;
+        }
 
         private async Task ValidateCoreAsync(Guid vendorId, string contractType, string paymentTerm, DateTime startDate, DateTime endDate,
             bool autoRenewal, int? renewalNoticeDays, string email, string? remark, CancellationToken ct)
@@ -179,6 +218,13 @@ namespace TenantPortal.Infrastructure.Services
         {
             RequireStaff(roleSlug, out var isOwner);
 
+            if (string.IsNullOrWhiteSpace(req.AgreementCode))
+                throw new DomainException("AGREEMENT_CODE_REQUIRED", "Agreement ID is required.");
+
+            var agreementCode = req.AgreementCode.Trim();
+            if (await _db.Agreements.AsNoTracking().AnyAsync(a => a.AgreementCode == agreementCode, ct))
+                throw new DomainException("AGREEMENT_CODE_EXISTS", "An agreement with this ID already exists.");
+
             if (req.TenantId is null || req.TenantId == Guid.Empty)
                 throw new DomainException("TENANT_REQUIRED", "Tenant is required.");
 
@@ -212,13 +258,12 @@ namespace TenantPortal.Infrastructure.Services
                 throw new DomainException("DOCUMENT_REQUIRED", "A signed document must be uploaded.");
 
             var documentPath = await _files.SaveAsync(documentStream, documentFileName, $"agreements/{req.TenantId}", ct);
-            var agreementNo = await NextAgreementNoAsync(ct);
             var regionId = await ResolveRegionIdAsync(req.CountryId, ct);
 
             var agreement = new Agreement
             {
                 AgreementId = Guid.NewGuid(),
-                AgreementNo = agreementNo,
+                AgreementCode = agreementCode,
                 ContractNumber = contractNumber,
                 TenantId = req.TenantId.Value,
                 VendorId = req.VendorId,
@@ -255,7 +300,7 @@ namespace TenantPortal.Infrastructure.Services
             // Dashboard "Recent activity" feed (Admin Manual 25-10-2026 §2.2) reads
             // this back via a human-readable Details string, not structured fields.
             await _audit.WriteAsync(actorUserId, null, "AGREEMENT_CREATED", null, null,
-                $"Agreement {agreementNo} created for {tenant.TenantName}", ct);
+                $"Agreement {agreementCode} created for {tenant.TenantName}", ct);
 
             return agreement.AgreementId;
         }
@@ -353,7 +398,7 @@ namespace TenantPortal.Infrastructure.Services
             // BR-08: an Order must link to an Active Agreement — block
             // deleting one that still has orders attached rather than
             // silently orphaning them.
-            var hasOrders = await _db.Orders.AsNoTracking().AnyAsync(o => o.ContractId == id, ct);
+            var hasOrders = await _db.Orders.AsNoTracking().AnyAsync(o => o.AgreementId == id, ct);
             if (hasOrders)
                 throw new DomainException("AGREEMENT_HAS_ORDERS", "This agreement has orders linked to it and cannot be deleted.");
 
@@ -380,10 +425,12 @@ namespace TenantPortal.Infrastructure.Services
                 throw new DomainException("NOT_PENDING", "Agreement is not pending approval.");
 
             agreement.Status = AgreementStatus.Active;
+            agreement.ApprovedBy = actorUserId;
+            agreement.ApprovedAt = DateTime.UtcNow;
             await _uow.CompleteAsync();
 
             await _audit.WriteAsync(actorUserId, null, "AGREEMENT_APPROVED", null, null,
-                $"Agreement {agreement.AgreementNo} approved for {tenant.TenantName}", ct);
+                $"Agreement {agreement.AgreementCode} approved for {tenant.TenantName}", ct);
         }
 
         public async Task RejectAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
@@ -404,7 +451,12 @@ namespace TenantPortal.Infrastructure.Services
             // No distinct "Rejected" state in the Admin Manual's enum —
             // Terminated is the closest terminal state for a rejected draft.
             agreement.Status = AgreementStatus.Terminated;
+            agreement.RejectedBy = actorUserId;
+            agreement.RejectedAt = DateTime.UtcNow;
             await _uow.CompleteAsync();
+
+            await _audit.WriteAsync(actorUserId, null, "AGREEMENT_REJECTED", null, null,
+                $"Agreement {agreement.AgreementCode} rejected for {tenant.TenantName}", ct);
         }
 
         // ----------------------
@@ -447,8 +499,11 @@ namespace TenantPortal.Infrastructure.Services
 
             await EnsureCountryInScopeAsync(isOwner, actorUserId, tenant.CountryId, ct);
 
-            if (agreement.Status != AgreementStatus.PendingApproval)
-                throw new DomainException("AGREEMENT_LOCKED", "Agreement Lines can only be changed while the agreement is Pending Approval.");
+            // Lines are managed AFTER approval (while the agreement is in
+            // force), not before — e.g. new products get added to an
+            // already-active agreement as deals happen during its term.
+            if (agreement.Status != AgreementStatus.Active)
+                throw new DomainException("AGREEMENT_LOCKED", "Agreement Lines can only be changed once the agreement is Active (after approval).");
 
             var vendor = await _db.Vendors.AsNoTracking().FirstOrDefaultAsync(v => v.Id == agreement.VendorId, ct)
                 ?? throw new NotFoundException("Vendor", agreement.VendorId);
@@ -472,15 +527,14 @@ namespace TenantPortal.Infrastructure.Services
             DiscountAmount = l.DiscountAmount,
             Amount = l.Amount,
             PriceUnit = l.PriceUnit,
-            Category = l.Category,
-            Status = l.Status
+            Category = l.Category
         };
 
         public async Task<IReadOnlyList<AgreementLineDto>> GetLinesAsync(Guid agreementId, CancellationToken ct)
         {
             var lines = await _db.AgreementLines.AsNoTracking()
                 .Where(l => l.AgreementId == agreementId)
-                .OrderBy(l => l.LineNo)
+                .OrderByDescending(l => l.CreatedAt)
                 .ToListAsync(ct);
 
             return lines.Select(ToDto).ToList();
@@ -529,7 +583,6 @@ namespace TenantPortal.Infrastructure.Services
                 Amount = amount,
                 PriceUnit = agreement.Currency,
                 Category = item.Category.ToString(),
-                Status = "Draft",
                 CreatedBy = actorUserId,
                 CreatedAt = DateTime.UtcNow
             };
@@ -558,7 +611,6 @@ namespace TenantPortal.Infrastructure.Services
             line.DiscountPercent = req.DiscountPercent;
             line.DiscountAmount = req.DiscountAmount;
             line.Amount = ComputeAmount(line.ListPrice, req.DiscountPercent, req.DiscountAmount);
-            line.Status = req.Status;
             line.UpdatedBy = actorUserId;
             line.UpdatedAt = DateTime.UtcNow;
 

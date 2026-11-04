@@ -1,14 +1,16 @@
-using TenantPortal.Domain.Entities;
-
 namespace TenantPortal.Application.DTOs.PriceList
 {
-    public class PriceListCreateRequest
+    public sealed class PriceListCreateRequest
     {
-        public Guid SubscriptionPlanId { get; set; }
-        public Guid CountryId { get; set; }
-        public string Currency { get; set; } = default!;
-        public decimal Price { get; set; }
-        public DateTime EffectiveFrom { get; set; }
-        public PriceListEntryStatus Status { get; set; } = PriceListEntryStatus.Active;
+        public string ProductId { get; set; } = default!;
+        public string Sku { get; set; } = default!;
+        public string Description { get; set; } = default!;
+        public string BillingFrequency { get; set; } = default!;
+        public string Segment { get; set; } = default!;
+        public string Category { get; set; } = default!;
+        public decimal SalesPrice { get; set; }
+        public Guid? CountryId { get; set; }
+        public string? Currency { get; set; }
+        public string Status { get; set; } = "Active";
     }
 }

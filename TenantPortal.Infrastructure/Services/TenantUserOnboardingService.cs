@@ -105,6 +105,7 @@ namespace TenantPortal.Infrastructure.Services
             // Owner is global.
             var isOwner = actorRole.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase);
             var isSubscriptionStaff = actorRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+            var isTenantScoped = actorRole.Equals("TenantAdmin", StringComparison.OrdinalIgnoreCase);
 
             if (!isOwner && isSubscriptionStaff)
             {
@@ -115,6 +116,13 @@ namespace TenantPortal.Infrastructure.Services
                 if (!allowed.Contains(tenant.CountryId))
                     throw new ForbiddenException("Country not in scope.");
             }
+
+            // Role x Function matrix: "Invite tenant users" = "Own tenant"
+            // for TenantAdmin — reject an attempt to target a different
+            // tenant than their own, even though req.TenantId ?? actorTenantId
+            // above would otherwise happily resolve to whatever was submitted.
+            if (isTenantScoped && tenantId.Value != actorTenantId)
+                throw new ForbiddenException("You can only invite users for your own tenant.");
 
             var userId = Guid.NewGuid();
 
@@ -174,12 +182,13 @@ namespace TenantPortal.Infrastructure.Services
             };
         }
 
-        public async Task ApproveAsync(Guid userId, Guid actorUserId, string actorRole, CancellationToken ct)
+        public async Task ApproveAsync(Guid userId, Guid actorUserId, string actorRole, Guid? actorTenantId, CancellationToken ct)
         {
             var isOwner = actorRole.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase);
             var isSubscriptionStaff = actorRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
-            if (!isOwner && !isSubscriptionStaff)
-                throw new ForbiddenException("Only Owner or Subscription staff can approve.");
+            var isTenantScoped = actorRole.Equals("TenantAdmin", StringComparison.OrdinalIgnoreCase);
+            if (!isOwner && !isSubscriptionStaff && !isTenantScoped)
+                throw new ForbiddenException("Only Owner, Subscription staff, or the tenant's own TenantAdmin can approve.");
 
             var user = await _users.FindByIdAsync(userId, ct) ?? throw new NotFoundException("User", userId);
             if (!user.TenantId.HasValue)
@@ -189,9 +198,14 @@ namespace TenantPortal.Infrastructure.Services
                 .FirstOrDefaultAsync(t => t.TenantId == user.TenantId.Value, ct)
                 ?? throw new NotFoundException("Tenant", user.TenantId.Value);
 
-            // Subscription-staff country scope enforcement
-            if (!isOwner)
+            if (isTenantScoped)
             {
+                if (user.TenantId.Value != actorTenantId)
+                    throw new ForbiddenException("You can only approve users for your own tenant.");
+            }
+            else if (!isOwner)
+            {
+                // Subscription-staff country scope enforcement
                 var roleId = await _authz.ResolveRoleIdBySlugAsync("Admin", ct);
                 if (roleId is null) throw new ForbiddenException("Role mapping missing.");
 
@@ -257,15 +271,16 @@ Invitation token valid for 48 hours.";
             }
         }
 
-        public async Task RejectAsync(Guid userId, RejectUserRequest req, Guid actorUserId, string actorRole, CancellationToken ct)
+        public async Task RejectAsync(Guid userId, RejectUserRequest req, Guid actorUserId, string actorRole, Guid? actorTenantId, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(req.RejectionReason))
                 throw new DomainException("REJECTION_REASON_REQUIRED", "Rejection reason is required.");
 
             var isOwner = actorRole.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase);
             var isSubscriptionStaff = actorRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
-            if (!isOwner && !isSubscriptionStaff)
-                throw new ForbiddenException("Only Owner or Subscription staff can reject.");
+            var isTenantScoped = actorRole.Equals("TenantAdmin", StringComparison.OrdinalIgnoreCase);
+            if (!isOwner && !isSubscriptionStaff && !isTenantScoped)
+                throw new ForbiddenException("Only Owner, Subscription staff, or the tenant's own TenantAdmin can reject.");
 
             var user = await _users.FindByIdAsync(userId, ct) ?? throw new NotFoundException("User", userId);
             if (!user.TenantId.HasValue)
@@ -275,7 +290,12 @@ Invitation token valid for 48 hours.";
                 .FirstOrDefaultAsync(t => t.TenantId == user.TenantId.Value, ct)
                 ?? throw new NotFoundException("Tenant", user.TenantId.Value);
 
-            if (!isOwner)
+            if (isTenantScoped)
+            {
+                if (user.TenantId.Value != actorTenantId)
+                    throw new ForbiddenException("You can only reject users for your own tenant.");
+            }
+            else if (!isOwner)
             {
                 var roleId = await _authz.ResolveRoleIdBySlugAsync("Admin", ct);
                 if (roleId is null) throw new ForbiddenException("Role mapping missing.");

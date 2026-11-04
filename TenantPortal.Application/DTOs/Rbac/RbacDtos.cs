@@ -32,8 +32,8 @@ namespace TenantPortal.Application.DTOs.Rbac
         public string Email { get; set; } = default!;
         public string Name { get; set; } = default!;
         public bool IsActive { get; set; }
-        public IReadOnlyList<int> RoleIds { get; set; } = Array.Empty<int>();
-        public IReadOnlyList<string> RoleNames { get; set; } = Array.Empty<string>();
+        public int RoleId { get; set; }
+        public string RoleName { get; set; } = default!;
     }
 
     public sealed class RolePermissionsDto
@@ -78,10 +78,10 @@ namespace TenantPortal.Application.DTOs.Rbac
         public List<int> ProcessPermissionIds { get; set; } = new();
     }
 
-    public sealed class UpdateUserRolesRequest
+    public sealed class UpdateUserRoleRequest
     {
         [Required]
-        public List<int> RoleIds { get; set; } = new();
+        public int RoleId { get; set; }
     }
 
     public sealed class CreateUserRequest

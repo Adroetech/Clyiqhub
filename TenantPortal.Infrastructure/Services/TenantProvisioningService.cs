@@ -1,16 +1,21 @@
 ﻿using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using TenantPortal.Application.Interfaces.Services;
+using TenantPortal.Domain.Entities;
+using TenantPortal.Infrastructure.Persistence;
 
 namespace TenantPortal.Infrastructure.Services
 {
     public class TenantProvisioningService : ITenantProvisioningService
     {
         private readonly IConfiguration _cfg;
+        private readonly AppDbContext _db;
 
-        public TenantProvisioningService(IConfiguration cfg)
+        public TenantProvisioningService(IConfiguration cfg, AppDbContext db)
         {
             _cfg = cfg;
+            _db = db;
         }
 
         public string GetHubUrl()
@@ -106,44 +111,24 @@ namespace TenantPortal.Infrastructure.Services
                 logFilePath: $"{dataDir}{rptDb}_log.ldf",
                 ct);
 
-            // 4) Save mapping into TenantPortal DB table ErpEnvironmentDbMap
-            // We will insert mapping into the same DB where TenantPortal runs (ConnectionStrings:Default)
-            var portalConn = _cfg.GetConnectionString("Default")
-                ?? throw new InvalidOperationException("Missing ConnectionStrings:Default for registry insert.");
-
-            await using (var conn2 = new SqlConnection(portalConn))
+            // 4) Save mapping into TenantPortal DB table ErpEnvironmentDbMap —
+            // an ordinary table upsert, done via EF Core (unlike the
+            // RESTORE/DROP DATABASE calls above, which are server-admin DDL
+            // with no EF Core equivalent and must stay on raw ADO.NET).
+            var map = await _db.ErpEnvironmentDbMaps.FirstOrDefaultAsync(x => x.TenantId == tenantId, ct);
+            if (map is null)
             {
-                await conn2.OpenAsync(ct);
-
-                // Upsert (insert if not exists)
-                var cmdText = @"
-IF EXISTS (SELECT 1 FROM dbo.ErpEnvironmentDbMap WHERE TenantId = @TenantId)
-BEGIN
-  UPDATE dbo.ErpEnvironmentDbMap
-    SET EnvManagerUserId = @EnvManagerUserId,
-        CoreDbName = @CoreDbName,
-        TxnDbName = @TxnDbName,
-        RptDbName = @RptDbName,
-        Status = @Status
-  WHERE TenantId = @TenantId;
-END
-ELSE
-BEGIN
-  INSERT INTO dbo.ErpEnvironmentDbMap (TenantId, EnvManagerUserId, CoreDbName, TxnDbName, RptDbName, Status)
-  VALUES (@TenantId, @EnvManagerUserId, @CoreDbName, @TxnDbName, @RptDbName, @Status);
-END
-";
-                await using var cmd = new SqlCommand(cmdText, conn2);
-                cmd.Parameters.AddWithValue("@TenantId", tenantId);
-                cmd.Parameters.AddWithValue("@EnvManagerUserId", envManagerUserId);
-                cmd.Parameters.AddWithValue("@CoreDbName", coreDb);
-                cmd.Parameters.AddWithValue("@TxnDbName", txnDb);
-
-                cmd.Parameters.AddWithValue("@RptDbName", rptDb);
-                cmd.Parameters.AddWithValue("@Status", "Active");
-
-                await cmd.ExecuteNonQueryAsync(ct);
+                map = new ErpEnvironmentDbMap { TenantId = tenantId };
+                _db.ErpEnvironmentDbMaps.Add(map);
             }
+
+            map.EnvManagerUserId = envManagerUserId;
+            map.CoreDbName = coreDb;
+            map.TxnDbName = txnDb;
+            map.RptDbName = rptDb;
+            map.Status = "Active";
+
+            await _db.SaveChangesAsync(ct);
 
             // 5) Return ERP URL (tenant routing will be by tenantId)
             var baseUrl = _cfg["ErpProvisioning:ErpBaseUrl"] ?? "http://localhost:5050";

@@ -4,11 +4,10 @@ namespace TenantPortal.Application.DTOs.Subscription
     {
         public Guid TenantId { get; set; }
         public string TenantName { get; set; } = default!;
-        public Guid SubscriptionId { get; set; } // = the Subscription Plan's Id
+        public Guid SubscriptionId { get; set; } // = the fulfilled Order's PriceListItem/SKU id
         public Guid? OrderId { get; set; }
         public string? SalesOrderNo { get; set; }
         public string SubscriptionPlanName { get; set; } = default!;
-        public string Provider { get; set; } = default!;
         public int TotalQty { get; set; }
         public int UsedQty { get; set; }
         public int? AvailableQty { get; set; }
@@ -19,5 +18,6 @@ namespace TenantPortal.Application.DTOs.Subscription
         public DateTime ExpiryDate { get; set; }
         public string Status { get; set; } = default!;
         public DateTime? SuspendedDate { get; set; }
+        public DateTime CreatedAt { get; set; }
     }
 }

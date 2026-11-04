@@ -184,18 +184,40 @@ Clyiq Team";
             if (!ok) throw new ForbiddenException("Only platform staff can perform this action.");
         }
 
-        public Task<IReadOnlyList<UserLicenseRowDto>> ListAllAsync(string actorRoleSlug, Guid? tenantId, CancellationToken ct)
+        // Wider than RequirePlatformStaff: also admits TenantAdmin, once
+        // granted "user.view"/"user.deactivate" from the RBAC screen — the
+        // Role x Function matrix's "Assign licences" row. Unlike platform
+        // staff, TenantAdmin's grant only ever applies within their own
+        // tenant, which the two callers below enforce themselves (this just
+        // decides who gets past the role check at all).
+        private static void RequirePlatformStaffOrTenantAdmin(string roleSlug)
         {
-            RequirePlatformStaff(actorRoleSlug);
-            return _erpUsers.ListAllAsync(tenantId, ct);
+            var ok = roleSlug.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase)
+                || roleSlug.Equals("Admin", StringComparison.OrdinalIgnoreCase)
+                || roleSlug.Equals("TenantAdmin", StringComparison.OrdinalIgnoreCase);
+            if (!ok) throw new ForbiddenException("Only platform staff or a Tenant Admin can perform this action.");
         }
 
-        public async Task DeactivateAsync(Guid actorUserId, string actorRoleSlug, Guid userId, CancellationToken ct)
+        public Task<IReadOnlyList<UserLicenseRowDto>> ListAllAsync(string actorRoleSlug, Guid? callerTenantId, Guid? requestedTenantId, CancellationToken ct)
         {
-            RequirePlatformStaff(actorRoleSlug);
+            RequirePlatformStaffOrTenantAdmin(actorRoleSlug);
+
+            // TenantAdmin's own tenant_id claim always wins — never trust a
+            // client-supplied tenantId for a tenant-scoped caller, the same
+            // way TenantsController.List ignores it for them too.
+            var effectiveTenantId = callerTenantId ?? requestedTenantId;
+            return _erpUsers.ListAllAsync(effectiveTenantId, ct);
+        }
+
+        public async Task DeactivateAsync(Guid actorUserId, string actorRoleSlug, Guid? callerTenantId, Guid userId, CancellationToken ct)
+        {
+            RequirePlatformStaffOrTenantAdmin(actorRoleSlug);
 
             var info = await _erpUsers.GetTenantAndSubscriptionAsync(userId, ct)
                 ?? throw new NotFoundException("User", userId);
+
+            if (callerTenantId.HasValue && info.TenantId != callerTenantId.Value)
+                throw new ForbiddenException("This user does not belong to your tenant.");
 
             await _erpUsers.DeactivateAsync(userId, ct);
 

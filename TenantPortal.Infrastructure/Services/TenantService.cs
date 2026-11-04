@@ -222,7 +222,7 @@ namespace TenantPortal.Infrastructure.Services
 
         // Edits a tenant's General/Primary-contact fields. Never touches
         // Status — approve/reject/suspend are the only paths that change it.
-        public async Task<TenantResponse> UpdateAsync(Guid tenantId, TenantUpdateRequest req, Guid currentUserId, CancellationToken ct)
+        public async Task<TenantResponse> UpdateAsync(Guid tenantId, TenantUpdateRequest req, Guid currentUserId, CancellationToken ct, bool restrictToTenantAdminFields = false)
         {
             var tenant = await _uow.Repository<Tenant>().FindAsync(t => t.TenantId == tenantId, trackChanges: true)
                          ?? throw new NotFoundException("Tenant", tenantId);
@@ -235,7 +235,7 @@ namespace TenantPortal.Infrastructure.Services
                 throw new DomainException("TENANT_IN_REVIEW_LOCKED", "A tenant pending review cannot be edited.");
 
             var before = SnapshotFields(tenant);
-            await ValidateAndApplyFieldsAsync(tenant, req, ct);
+            await ValidateAndApplyFieldsAsync(tenant, req, ct, restrictToTenantAdminFields);
             var fieldChanges = DiffFields(before, tenant, currentUserId);
 
             tenant.UpdatedAt = DateTime.UtcNow;
@@ -301,7 +301,16 @@ namespace TenantPortal.Infrastructure.Services
         // Shared by UpdateAsync and ResubmitAsync — same required-field,
         // duplicate, and FK checks either way, just a different status
         // transition (or none) afterward.
-        private async Task ValidateAndApplyFieldsAsync(Tenant tenant, TenantUpdateRequest req, CancellationToken ct)
+        // Role x Function matrix: "Edit tenant" = "Own tenant, limited" for
+        // TenantAdmin — identity/commercial fields (name, country, city,
+        // language, start date) stay locked; contact/domain fields remain
+        // editable. Validation still runs against the full request either
+        // way, so the frontend can keep sending the tenant's current values
+        // for the locked fields without special-casing required-field checks.
+        private static readonly string[] TenantAdminLockedFields =
+            { nameof(Tenant.TenantName), nameof(Tenant.CountryId), nameof(Tenant.CityId), nameof(Tenant.LanguageId), nameof(Tenant.StartDate) };
+
+        private async Task ValidateAndApplyFieldsAsync(Tenant tenant, TenantUpdateRequest req, CancellationToken ct, bool restrictToTenantAdminFields = false)
         {
             if (string.IsNullOrWhiteSpace(req.TenantName))
                 throw new DomainException("TENANT_NAME_REQUIRED", "Tenant Name is required.");
@@ -377,21 +386,23 @@ namespace TenantPortal.Infrastructure.Services
             if (!langExists)
                 throw new DomainException("LANGUAGE_NOT_FOUND", "Language not found.");
 
-            tenant.TenantName = req.TenantName.Trim();
+            var locked = restrictToTenantAdminFields ? TenantAdminLockedFields : Array.Empty<string>();
+
+            if (!locked.Contains(nameof(Tenant.TenantName))) tenant.TenantName = req.TenantName.Trim();
             tenant.Domain = domain;
             tenant.EmailDomain = req.EmailDomain.Trim().ToLowerInvariant();
             tenant.Email = email;
-            tenant.CountryId = req.CountryId;
-            tenant.LanguageId = req.LanguageId;
+            if (!locked.Contains(nameof(Tenant.CountryId))) tenant.CountryId = req.CountryId;
+            if (!locked.Contains(nameof(Tenant.LanguageId))) tenant.LanguageId = req.LanguageId;
             tenant.BackupPlan = req.BackupPlan;
             tenant.Timezone = req.Timezone.Trim();
-            tenant.CityId = req.City;
+            if (!locked.Contains(nameof(Tenant.CityId))) tenant.CityId = req.City;
             tenant.Address = req.Address.Trim();
             tenant.PrimaryContact = req.PrimaryContact.Trim();
             tenant.ContactNumber = req.ContactNumber.Trim();
             tenant.TaxNumber = string.IsNullOrWhiteSpace(req.TaxNumber) ? null : req.TaxNumber.Trim();
             tenant.AutoRenewal = req.AutoRenewal;
-            tenant.StartDate = req.StartDate;
+            if (!locked.Contains(nameof(Tenant.StartDate))) tenant.StartDate = req.StartDate;
         }
 
         // All values as strings so old/new are directly comparable — Guids,
@@ -600,12 +611,20 @@ namespace TenantPortal.Infrastructure.Services
         }
 
         public async Task<(int total, IReadOnlyList<TenantListItemDto> rows)> ListAsync(
-            TenantListQuery q, CancellationToken ct)
+            TenantListQuery q, Guid? callerTenantId, CancellationToken ct)
         {
             q.Page = Math.Max(1, q.Page);
             q.PageSize = Math.Clamp(q.PageSize, 1, 200);
 
             IQueryable<Tenant> query = _db.Tenants.AsNoTracking();
+
+            // "View all tenants" is only unscoped for SuperAdmin/Admin by
+            // default — it's also grantable to TenantAdmin from the RBAC
+            // matrix screen (tenant.view), which TenantsController now
+            // admits them through, but it must only ever show them their own
+            // tenant, never everyone's.
+            if (callerTenantId.HasValue)
+                query = query.Where(t => t.TenantId == callerTenantId.Value);
 
             if (!string.IsNullOrWhiteSpace(q.Status) && Enum.TryParse<TenantStatus>(q.Status, true, out var statusFilter))
                 query = query.Where(t => t.Status == statusFilter);
@@ -665,6 +684,7 @@ namespace TenantPortal.Infrastructure.Services
             return new TenantResponse
             {
                 TenantId = t.TenantId,
+                TenantCode = t.TenantCode,
                 TenantName = t.TenantName,
                 Status = (int)t.Status,
                 StartDate = t.StartDate,
@@ -697,23 +717,23 @@ namespace TenantPortal.Infrastructure.Services
             {
                 if (isoCountries.Count == 0) return Array.Empty<TenantDropdownDto>();
 
-                var inList = string.Join(",", isoCountries.Select(c => $"'{c}'"));
-                var allowedCountryIds = await _db.Database.SqlQueryRaw<Guid>($@"
-                    SELECT CountryId AS [Value]
-                    FROM dbo.Country
-                    WHERE UPPER(CountryCode) IN ({inList})").ToListAsync(ct);
+                var upperCodes = isoCountries.Select(c => c.ToUpperInvariant()).ToList();
+                var allowedCountryIds = await _db.Countries.AsNoTracking()
+                    .Where(c => upperCodes.Contains(c.CountryCode.ToUpper()))
+                    .Select(c => c.CountryId)
+                    .ToListAsync(ct);
 
                 if (allowedCountryIds.Count == 0) return Array.Empty<TenantDropdownDto>();
                 query = query.Where(t => allowedCountryIds.Contains(t.CountryId));
             }
 
-            return await query.OrderBy(t => t.TenantName)
+            return await query.OrderByDescending(t => t.CreatedAt)
                 .Select(t => new TenantDropdownDto
                 {
                     TenantId = t.TenantId,
+                    TenantCode = t.TenantCode,
                     TenantName = t.TenantName,
-                    CountryId = t.CountryId,
-                    
+                    CountryId = t.CountryId
                 })
                 .ToListAsync(ct);
         }

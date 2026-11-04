@@ -54,13 +54,13 @@ namespace TenantPortal.API.Controllers
         }
 
         [HttpGet("users/{userId:guid}/roles")]
-        public Task<IReadOnlyList<int>> GetUserRoles(Guid userId, CancellationToken ct)
-            => _svc.GetUserRolesAsync(userId, ct);
+        public Task<int?> GetUserRoles(Guid userId, CancellationToken ct)
+            => _svc.GetUserRoleAsync(userId, ct);
 
         [HttpPut("users/{userId:guid}/roles")]
-        public async Task<IActionResult> UpdateUserRoles(Guid userId, [FromBody] UpdateUserRolesRequest req, CancellationToken ct)
+        public async Task<IActionResult> UpdateUserRoles(Guid userId, [FromBody] UpdateUserRoleRequest req, CancellationToken ct)
         {
-            var result = await _svc.UpdateUserRolesAsync(userId, req, CurrentUserId, RoleSlug, ct);
+            var result = await _svc.UpdateUserRoleAsync(userId, req, CurrentUserId, RoleSlug, ct);
             return Ok(new { ok = true, changed = result.Changed, message = result.Message });
         }
     }

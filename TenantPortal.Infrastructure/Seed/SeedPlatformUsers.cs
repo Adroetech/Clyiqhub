@@ -46,6 +46,35 @@ namespace TenantPortal.Infrastructure.Seed
                     "EnvMgr@123!");
             }
 
+            // Role x Function matrix test accounts (one per role, plus two
+            // Tenant* pairs scoped to specific tenants) requested 31-10-2026
+            // for manually exercising the permission matrix end to end.
+            await EnsureAsync(db, hasher, "platformuser@platform.local", "Platform_User", "PlatformUser", null, "PlatformUser@123!");
+
+            const string tenant25Code = "TEN-00025";
+            const string tenant29Code = "TEN-00029";
+
+            var tenant25Id = await db.Tenants.AsNoTracking()
+                .Where(t => t.TenantCode == tenant25Code)
+                .Select(t => (Guid?)t.TenantId)
+                .FirstOrDefaultAsync();
+            var tenant29Id = await db.Tenants.AsNoTracking()
+                .Where(t => t.TenantCode == tenant29Code)
+                .Select(t => (Guid?)t.TenantId)
+                .FirstOrDefaultAsync();
+
+            if (tenant25Id.HasValue)
+            {
+                await EnsureAsync(db, hasher, "tenantadmin25@tenant.local", "Tenant25_Admin", "TenantAdmin", tenant25Id, "TenantAdmin25@123!");
+                await EnsureAsync(db, hasher, "tenantuser25@tenant.local", "Tenant25_User", "TenantUser", tenant25Id, "TenantUser25@123!");
+            }
+
+            if (tenant29Id.HasValue)
+            {
+                await EnsureAsync(db, hasher, "tenantadmin29@tenant.local", "Tenant29_Admin", "TenantAdmin", tenant29Id, "TenantAdmin29@123!");
+                await EnsureAsync(db, hasher, "tenantuser29@tenant.local", "Tenant29_User", "TenantUser", tenant29Id, "TenantUser29@123!");
+            }
+
             await db.SaveChangesAsync();
         }
 

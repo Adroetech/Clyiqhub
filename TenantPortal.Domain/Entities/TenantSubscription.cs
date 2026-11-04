@@ -43,6 +43,11 @@ namespace TenantPortal.Domain.Entities
 
         public DateTime? SuspendedDate { get; set; }
 
+        // Every list/dropdown in the app is ordered by this, newest first —
+        // backfilled to "now" for pre-existing rows via the migration's
+        // DEFAULT constraint.
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
         // Optional column if present in DB
         public string? TenantId_Char { get; set; }
     }

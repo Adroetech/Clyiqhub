@@ -5,9 +5,10 @@ namespace TenantPortal.Application.DTOs.Agreement
     public sealed class AgreementListItemDto
     {
         public Guid Id { get; set; }
-        public string AgreementNo { get; set; } = default!;
+        public string AgreementCode { get; set; } = default!;
         public string? ContractNumber { get; set; } // optional "Agreement Reference"
         public Guid TenantId { get; set; }
+        public string? TenantCode { get; set; }
         public string TenantName { get; set; } = default!;
         public string? Domain { get; set; }
         public Guid VendorId { get; set; }
@@ -32,5 +33,10 @@ namespace TenantPortal.Application.DTOs.Agreement
         public string? Notes { get; set; }
         public int Status { get; set; }
         public DateTime CreatedAt { get; set; }
+        public string? CreatedByName { get; set; }
+        public DateTime? ApprovedAt { get; set; }
+        public string? ApprovedByName { get; set; }
+        public DateTime? RejectedAt { get; set; }
+        public string? RejectedByName { get; set; }
     }
 }

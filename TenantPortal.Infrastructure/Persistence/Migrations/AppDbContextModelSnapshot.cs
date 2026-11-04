@@ -28,10 +28,16 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("AgreementNo")
+                    b.Property<string>("AgreementCode")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ApprovedBy")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("AutoRenewal")
                         .HasColumnType("bit");
@@ -98,6 +104,12 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("RegionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTime?>("RejectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("RejectedBy")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Remark")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
@@ -119,7 +131,7 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
 
                     b.HasKey("AgreementId");
 
-                    b.HasIndex("AgreementNo")
+                    b.HasIndex("AgreementCode")
                         .IsUnique();
 
                     b.ToTable("Agreements", "dbo");
@@ -191,11 +203,6 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("datetime2");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -293,6 +300,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CountryId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
                     b.HasKey("CityId");
 
                     b.ToTable("City", "dbo");
@@ -308,6 +320,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -448,6 +465,55 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("EmailSettings", "dbo");
                 });
 
+            modelBuilder.Entity("TenantPortal.Domain.Entities.ErpEnvironmentDbMap", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CoreDbName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("EnvManagerUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RptDbName")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("Subdomain")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("TxnDbName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("TenantId");
+
+                    b.ToTable("ErpEnvironmentDbMap", "dbo");
+                });
+
             modelBuilder.Entity("TenantPortal.Domain.Entities.InvitationToken", b =>
                 {
                     b.Property<Guid>("TokenId")
@@ -560,6 +626,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("LanguageId"));
 
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
                     b.Property<bool>("IsRTL")
                         .HasColumnType("bit");
 
@@ -647,7 +718,44 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("ContractId")
+                    b.Property<Guid>("AgreementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AgreementLineId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("BillingFrequency")
+                        .HasMaxLength(12)
+                        .HasColumnType("nvarchar(12)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CancelledBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CompletedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ConfirmedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CountryId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
@@ -656,56 +764,112 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CreatedBy")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal?>("Discount")
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("CustomerReference")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<decimal?>("DiscountAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<string>("Domain")
-                        .IsRequired()
+                    b.Property<decimal?>("DiscountPercent")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("DocumentPath")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("DomainName")
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
-                    b.Property<decimal>("NetPayable")
+                    b.Property<int>("DurationMonths")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("InvoicedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("InvoicedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("ListPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("OrderDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("OrderNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<byte>("PaymentStatus")
+                        .HasColumnType("tinyint");
 
                     b.Property<string>("PaymentTerm")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<decimal>("Price")
+                    b.Property<Guid>("PriceListItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Quantity")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<int>("Qty")
-                        .HasColumnType("int");
+                    b.Property<Guid?>("RegionId")
+                        .HasColumnType("uniqueidentifier");
 
-                    b.Property<DateTime>("SalesDate")
-                        .HasColumnType("datetime2");
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
-                    b.Property<string>("SalesOrderNo")
+                    b.Property<string>("Segment")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<Guid>("SegmentId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<string>("Sku")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SkuName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("datetime2");
 
                     b.Property<byte>("Status")
                         .HasColumnType("tinyint");
 
-                    b.Property<Guid>("SubscriptionPlanId")
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("TaxGroupId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal?>("TaxPercent")
+                    b.Property<decimal>("TaxRate")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal>("TotalPayable")
+                    b.Property<decimal>("TotalAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
@@ -713,11 +877,13 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<decimal?>("VatAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
                     b.HasKey("OrderId");
+
+                    b.HasIndex("AgreementLineId")
+                        .HasDatabaseName("IX_Orders_AgreementLineId");
+
+                    b.HasIndex("OrderNo")
+                        .IsUnique();
 
                     b.ToTable("Orders", "dbo");
                 });
@@ -757,6 +923,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -774,41 +945,6 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("PaymentTerms", "dbo");
                 });
 
-            modelBuilder.Entity("TenantPortal.Domain.Entities.PriceListEntry", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CountryId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CreatedBy")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
-
-                    b.Property<DateTime>("EffectiveFrom")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("Price")
-                        .HasPrecision(10, 2)
-                        .HasColumnType("decimal(10,2)");
-
-                    b.Property<byte>("Status")
-                        .HasColumnType("tinyint");
-
-                    b.Property<Guid>("SubscriptionPlanId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("PriceList", "dbo");
-                });
-
             modelBuilder.Entity("TenantPortal.Domain.Entities.PriceListItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -821,11 +957,18 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.Property<int>("Category")
                         .HasColumnType("int");
 
+                    b.Property<Guid?>("CountryId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<Guid>("CreatedBy")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -836,10 +979,6 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
-
-                    b.Property<decimal>("PurchasePrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal>("SalesPrice")
                         .HasPrecision(18, 2)
@@ -1077,7 +1216,7 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId", "RoleId")
+                    b.HasIndex("UserId")
                         .IsUnique();
 
                     b.ToTable("SysUserRoleDetails", "dbo");
@@ -1088,6 +1227,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1104,6 +1248,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("SegmentId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
                     b.Property<string>("Description")
                         .HasMaxLength(255)
@@ -1376,6 +1525,46 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("SysUserRoleTenants", "dbo");
                 });
 
+            modelBuilder.Entity("TenantPortal.Domain.Entities.TaxGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid?>("CountryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<decimal>("Rate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("TaxGroups", "dbo");
+                });
+
             modelBuilder.Entity("TenantPortal.Domain.Entities.Tenant", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -1578,6 +1767,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
                     b.Property<DateTime>("ExpiryDate")
                         .HasColumnType("datetime2");
 
@@ -1732,6 +1926,11 @@ namespace TenantPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
                     b.Property<string>("Name")
                         .IsRequired()

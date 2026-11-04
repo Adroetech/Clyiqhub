@@ -114,15 +114,19 @@ namespace TenantPortal.Infrastructure.Services
                     if (!tenantId.HasValue) return (null, new HashSet<Guid>());
                     return (null, new HashSet<Guid> { tenantId.Value });
 
+                // PlatformUser is staff-scoped the same way Admin is — country
+                // list driven by SysUserRoleCountry, empty by default (sees
+                // nothing until explicitly scoped) — never the unrestricted
+                // global access SuperAdmin gets, which `default` below grants.
                 case RoleType.Admin:
+                case RoleType.PlatformUser:
                     if (isoCountries.Count == 0) return (new HashSet<Guid>(), null);
 
-                    var inList = string.Join(",", isoCountries.Select(c => $"'{c.Trim().ToUpperInvariant()}'"));
-                    var ids = await _db.Database.SqlQueryRaw<Guid>($@"
-                        SELECT CountryId AS [Value]
-                        FROM dbo.Country
-                        WHERE UPPER(CountryCode) IN ({inList})
-                    ").ToListAsync(ct);
+                    var upperCodes = isoCountries.Select(c => c.Trim().ToUpperInvariant()).ToList();
+                    var ids = await _db.Countries.AsNoTracking()
+                        .Where(c => upperCodes.Contains(c.CountryCode.ToUpper()))
+                        .Select(c => c.CountryId)
+                        .ToListAsync(ct);
 
                     return (ids.ToHashSet(), null);
 

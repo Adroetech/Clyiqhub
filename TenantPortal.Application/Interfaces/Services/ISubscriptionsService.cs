@@ -9,9 +9,9 @@ namespace TenantPortal.Application.Interfaces.Services
     // section.
     public interface ISubscriptionsService
     {
-        Task<(int total, IReadOnlyList<SubscriptionListItemDto> rows)> ListAsync(SubscriptionQuery q, CancellationToken ct);
+        Task<(int total, IReadOnlyList<SubscriptionListItemDto> rows)> ListAsync(SubscriptionQuery q, Guid? callerTenantId, CancellationToken ct);
         Task<SubscriptionListItemDto?> GetAsync(Guid tenantId, Guid subscriptionId, CancellationToken ct);
-        Task CreateAsync(SubscriptionCreateRequest req, Guid actorUserId, string roleSlug, CancellationToken ct);
+        Task CreateAsync(SubscriptionCreateRequest req, Guid actorUserId, string roleSlug, Guid? callerTenantId, CancellationToken ct);
         Task UpdateAsync(Guid tenantId, Guid subscriptionId, SubscriptionUpdateRequest req, Guid actorUserId, string roleSlug, CancellationToken ct);
         Task DeactivateAsync(Guid tenantId, Guid subscriptionId, Guid actorUserId, string roleSlug, CancellationToken ct);
     }

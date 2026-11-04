@@ -64,7 +64,7 @@ namespace TenantPortal.Infrastructure.Repositories
         {
             return await _db.TenantSubscriptions.AsNoTracking()
                 .Where(s => s.TenantId == tenantId)
-                .OrderByDescending(s => s.ExpiryDate)
+                .OrderByDescending(s => s.CreatedAt)
                 .Select(s => new TenantSubscriptionRowDto
                 {
                     SubscriptionId = s.SubscriptionId,
@@ -121,7 +121,7 @@ namespace TenantPortal.Infrastructure.Repositories
         {
             var rows = await _db.SysUserInfo.AsNoTracking()
                 .Where(u => u.TenantId == tenantId && !u.IsDeleted)
-                .OrderBy(u => u.Email)
+                .OrderByDescending(u => u.Date)
                 .Select(u => new { u.UserId, u.Email, RoleName = u.Role.Name, u.Status, u.LastLoginAt })
                 .ToListAsync(ct);
 
@@ -163,13 +163,13 @@ namespace TenantPortal.Infrastructure.Repositories
                 .Select(x => new TenantOrderRowDto
                 {
                     OrderId = x.OrderId,
-                    SalesOrderNo = x.SalesOrderNo,
-                    AgreementId = x.ContractId,
-                    Domain = x.Domain,
-                    SalesDate = x.SalesDate,
-                    Qty = x.Qty,
-                    TotalPayable = x.TotalPayable,
-                    NetPayable = x.NetPayable,
+                    SalesOrderNo = x.OrderNo,
+                    AgreementId = x.AgreementId,
+                    Domain = x.DomainName ?? string.Empty,
+                    SalesDate = x.OrderDate,
+                    Qty = (int)x.Quantity,
+                    TotalPayable = x.TotalAmount,
+                    NetPayable = x.TotalAmount,
                     Status = (int)x.Status,
                     CreatedAt = x.CreatedAt
                 })

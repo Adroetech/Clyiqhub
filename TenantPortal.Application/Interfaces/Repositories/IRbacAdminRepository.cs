@@ -14,8 +14,13 @@ namespace TenantPortal.Application.Interfaces.Repositories
         Task<int> CreateRoleAsync(string name, string slug, string level, bool isActive, IReadOnlyList<int> processPermissionIds, Guid actor, CancellationToken ct);
         Task UpdateRoleAsync(int roleId, string name, bool isActive, IReadOnlyList<int> processPermissionIds, CancellationToken ct);
 
-        Task<IReadOnlyList<int>> GetUserRoleIdsAsync(Guid userId, CancellationToken ct);
-        Task ReplaceUserRolesAsync(Guid userId, IReadOnlyList<int> roleIds, Guid assignedBy, CancellationToken ct);
+        // One role per user — ReplaceUserRoleAsync also updates
+        // SysUserInfo.RoleId (the column login/JWT actually reads), keeping
+        // the two in sync; previously only SysUserRoleDetails changed here,
+        // so an admin's role reassignment silently never reached the user's
+        // next login.
+        Task<int?> GetUserRoleIdAsync(Guid userId, CancellationToken ct);
+        Task ReplaceUserRoleAsync(Guid userId, int roleId, Guid assignedBy, CancellationToken ct);
 
         Task<bool> EmailExistsAsync(string email, CancellationToken ct);
         Task<RoleType?> GetRoleTypeAsync(int roleId, CancellationToken ct);

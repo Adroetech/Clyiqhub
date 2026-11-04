@@ -50,25 +50,17 @@ namespace TenantPortal.Infrastructure.Authorization
             // For now: match by suffix ".process.action" in the code set.
             var requiredSuffix = "." + requiredProcess + "." + requiredAction;
 
-            // 2) Get all roleIds assigned to user (multi-role)
-            var roleIds = await GetUserRoleIdsCachedAsync(userId, ct);
-            if (roleIds.Count == 0)
+            // 2) Get the single role assigned to the user (SysUserInfo.RoleId
+            // is the only source of truth — one role per user, enforced by a
+            // unique index on SysUserRoleDetails.UserId at the DB layer too).
+            var roleId = await GetUserRoleIdCachedAsync(userId, ct);
+            if (roleId is null)
                 return false;
 
-            // 3) Permission check: if any role has required permission code -> allowed (then scope enforced)
-            bool hasPermission = false;
-            int? grantingRoleId = null;
-
-            foreach (var roleId in roleIds)
-            {
-                var codes = await GetRoleCodesCachedAsync(roleId, ct);
-                if (codes.Any(c => c.EndsWith(requiredSuffix, StringComparison.OrdinalIgnoreCase)))
-                {
-                    hasPermission = true;
-                    grantingRoleId = roleId;
-                    break;
-                }
-            }
+            // 3) Permission check against that one role's granted codes.
+            var codes = await GetRoleCodesCachedAsync(roleId.Value, ct);
+            var hasPermission = codes.Any(c => c.EndsWith(requiredSuffix, StringComparison.OrdinalIgnoreCase));
+            var grantingRoleId = hasPermission ? roleId : null;
 
             if (!hasPermission) return false;
 
@@ -88,13 +80,22 @@ namespace TenantPortal.Infrastructure.Authorization
                 {
                     var roleSlug = await _auth.ResolveRoleSlugByIdAsync(grantingRoleId.Value, ct); // you need this method OR map roleId->slug in repo
                     if (roleSlug is not null &&
-                        roleSlug.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+                        roleSlug.Equals("Admin", StringComparison.OrdinalIgnoreCase) &&
+                        countryIdFromRequest is not null)
                     {
+                        // Only enforce country scope when the endpoint actually
+                        // targets a specific country (countryKey supplied to
+                        // [RequirePermission]) — no endpoint in the app does
+                        // today, so this branch is currently unreachable, but
+                        // is kept for when one does. Previously this also ran
+                        // for every check with no country in question at all
+                        // (the vast majority), denying every Admin account
+                        // that has never been assigned to SysUserRoleCountry —
+                        // which is every Admin account today, since nothing
+                        // populates that table yet. Role x Function matrix:
+                        // Platform Admin = "Yes" (unscoped) for most
+                        // functions, which that behavior silently broke.
                         var allowed = await _auth.GetUserCountriesAsync(userId, grantingRoleId.Value, ct);
-
-                        if (countryIdFromRequest is null)
-                            return allowed.Count > 0;
-
                         return allowed.Contains(countryIdFromRequest.Value);
                     }
                 }
@@ -103,8 +104,14 @@ namespace TenantPortal.Infrastructure.Authorization
             }
             else
             {
-                // Tenant scoped roles (TenantAdmin)
-                // Use tenantIdFromRequest OR tenant claim
+                // Tenant-scoped roles (TenantAdmin, TenantUser) — restricted
+                // to their own tenant_id claim. Role x Function matrix:
+                // "Own tenant" for both roles across every row that grants
+                // them anything. (GetUserTenantsAsync/SysUserRoleTenant is a
+                // separate, currently-unpopulated mechanism for a
+                // TenantAdmin assigned to *multiple* tenants — not used here
+                // since every tenant-scoped role today has exactly one home
+                // tenant, from the JWT claim.)
                 if (Guid.TryParse(tenantClaim, out var tokenTenantId))
                 {
                     var effectiveTenantId = tenantIdFromRequest ?? tokenTenantId;
@@ -113,10 +120,10 @@ namespace TenantPortal.Infrastructure.Authorization
                     {
                         var roleSlug = await _auth.ResolveRoleSlugByIdAsync(grantingRoleId.Value, ct);
                         if (roleSlug is not null &&
-                            roleSlug.Equals("TenantAdmin", StringComparison.OrdinalIgnoreCase))
+                            (roleSlug.Equals("TenantAdmin", StringComparison.OrdinalIgnoreCase) ||
+                             roleSlug.Equals("TenantUser", StringComparison.OrdinalIgnoreCase)))
                         {
-                            var allowedTenants = await _auth.GetUserTenantsAsync(userId, grantingRoleId.Value, ct);
-                            return allowedTenants.Contains(effectiveTenantId);
+                            return effectiveTenantId == tokenTenantId;
                         }
                     }
                 }
@@ -140,27 +147,22 @@ namespace TenantPortal.Infrastructure.Authorization
             var userIdClaim = user.FindFirst("user_id")?.Value;
             if (!Guid.TryParse(userIdClaim, out var userId)) return false;
 
-            var roleIds = await GetUserRoleIdsCachedAsync(userId, ct);
-            if (roleIds.Count == 0) return false;
+            var roleId = await GetUserRoleIdCachedAsync(userId, ct);
+            if (roleId is null) return false;
 
-            foreach (var roleId in roleIds)
-            {
-                var codes = await GetRoleCodesCachedAsync(roleId, ct);
-                if (codes.Contains(requiredCode))
-                    return true;
-            }
-            return false;
+            var codes = await GetRoleCodesCachedAsync(roleId.Value, ct);
+            return codes.Contains(requiredCode);
         }
 
-        private async Task<List<int>> GetUserRoleIdsCachedAsync(Guid userId, CancellationToken ct)
+        private async Task<int?> GetUserRoleIdCachedAsync(Guid userId, CancellationToken ct)
         {
-            var key = $"user:{userId}:roles";
-            if (_cache.TryGetValue(key, out List<int>? cached) && cached != null)
+            var key = $"user:{userId}:role";
+            if (_cache.TryGetValue(key, out int? cached) && cached != null)
                 return cached;
 
-            var roles = (await _auth.GetUserRoleIdsAsync(userId, ct)).ToList();
-            _cache.Set(key, roles, UserRolesTtl);
-            return roles;
+            var roleId = await _auth.GetUserRoleIdAsync(userId, ct);
+            _cache.Set(key, roleId, UserRolesTtl);
+            return roleId;
         }
 
         private async Task<HashSet<string>> GetRoleCodesCachedAsync(int roleId, CancellationToken ct)
@@ -176,7 +178,7 @@ namespace TenantPortal.Infrastructure.Authorization
 
         // Invalidation helpers (call from admin service after updates)
         public void InvalidateRole(int roleId) => _cache.Remove($"role:{roleId}:permCodes");
-        public void InvalidateUser(Guid userId) => _cache.Remove($"user:{userId}:roles");
+        public void InvalidateUser(Guid userId) => _cache.Remove($"user:{userId}:role");
 
       
 

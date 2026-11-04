@@ -22,7 +22,7 @@ namespace TenantPortal.Infrastructure.Repositories
         public async Task<IReadOnlyList<RoleDto>> GetRolesAsync(CancellationToken ct)
         {
             var roles = await _db.SysRoles.AsNoTracking()
-                .OrderBy(r => r.RoleType).ThenBy(r => r.Name)
+                .OrderByDescending(r => r.CreatedAt)
                 .ToListAsync(ct);
 
             return _mapper.Map<List<RoleDto>>(roles);
@@ -30,37 +30,25 @@ namespace TenantPortal.Infrastructure.Repositories
 
         public async Task<IReadOnlyList<PlatformUserDto>> GetUsersAsync(CancellationToken ct)
         {
-            var users = await _db.SysUserInfo.AsNoTracking()
-                .Where(u => !u.IsDeleted)
-                .OrderBy(u => u.Email)
-                .Select(u => new { u.UserId, u.Email, u.Name, u.Status })
-                .ToListAsync(ct);
-
-            var assignments = await _db.SysUserRoleDetails.AsNoTracking()
-                .Select(d => new { d.UserId, d.RoleId })
-                .ToListAsync(ct);
-
             var roles = await _db.SysRoles.AsNoTracking()
                 .Select(r => new { r.RoleId, r.Name })
                 .ToListAsync(ct);
             var roleNameById = roles.ToDictionary(r => r.RoleId, r => r.Name);
 
-            var rolesByUser = assignments
-                .GroupBy(a => a.UserId)
-                .ToDictionary(g => g.Key, g => g.Select(a => a.RoleId).Distinct().OrderBy(x => x).ToList());
+            var users = await _db.SysUserInfo.AsNoTracking()
+                .Where(u => !u.IsDeleted)
+                .OrderByDescending(u => u.Date)
+                .Select(u => new { u.UserId, u.Email, u.Name, u.Status, u.RoleId })
+                .ToListAsync(ct);
 
-            return users.Select(u =>
+            return users.Select(u => new PlatformUserDto
             {
-                var roleIds = rolesByUser.TryGetValue(u.UserId, out var ids) ? ids : new List<int>();
-                return new PlatformUserDto
-                {
-                    UserId = u.UserId,
-                    Email = u.Email,
-                    Name = u.Name,
-                    IsActive = u.Status == Domain.Entities.UserAccountStatus.Active,
-                    RoleIds = roleIds,
-                    RoleNames = roleIds.Select(id => roleNameById.TryGetValue(id, out var n) ? n : $"#{id}").ToList()
-                };
+                UserId = u.UserId,
+                Email = u.Email,
+                Name = u.Name,
+                IsActive = u.Status == Domain.Entities.UserAccountStatus.Active,
+                RoleId = u.RoleId,
+                RoleName = roleNameById.TryGetValue(u.RoleId, out var n) ? n : $"#{u.RoleId}"
             }).ToList();
         }
 
@@ -170,32 +158,36 @@ namespace TenantPortal.Infrastructure.Repositories
             await tx.CommitAsync(ct);
         }
 
-        public Task<IReadOnlyList<int>> GetUserRoleIdsAsync(Guid userId, CancellationToken ct)
+        public Task<int?> GetUserRoleIdAsync(Guid userId, CancellationToken ct)
         {
-            return _db.SysUserRoleDetails.AsNoTracking()
-                .Where(x => x.UserId == userId)
-                .Select(x => x.RoleId)
-                .ToListAsync(ct)
-                .ContinueWith(t => (IReadOnlyList<int>)t.Result, ct);
+            return _db.SysUserInfo.AsNoTracking()
+                .Where(u => u.UserId == userId)
+                .Select(u => (int?)u.RoleId)
+                .FirstOrDefaultAsync(ct);
         }
 
-        public async Task ReplaceUserRolesAsync(Guid userId, IReadOnlyList<int> roleIds, Guid assignedBy, CancellationToken ct)
+        // Updates SysUserInfo.RoleId (the column login/JWT reads) and
+        // replaces the SysUserRoleDetails row — kept as a one-row-per-user
+        // audit trail (AssignedBy/AssignedAt), not as a second source of
+        // truth. Previously this only touched SysUserRoleDetails, so an
+        // admin's reassignment never actually reached the user's next login.
+        public async Task ReplaceUserRoleAsync(Guid userId, int roleId, Guid assignedBy, CancellationToken ct)
         {
             using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+            var user = await _db.SysUserInfo.FirstOrDefaultAsync(u => u.UserId == userId, ct);
+            if (user is not null) user.RoleId = roleId;
 
             var existing = await _db.SysUserRoleDetails.Where(x => x.UserId == userId).ToListAsync(ct);
             _db.SysUserRoleDetails.RemoveRange(existing);
 
-            foreach (var roleId in roleIds.Distinct())
+            _db.SysUserRoleDetails.Add(new SysUserRoleDetail
             {
-                _db.SysUserRoleDetails.Add(new SysUserRoleDetail
-                {
-                    UserId = userId,
-                    RoleId = roleId,
-                    AssignedBy = assignedBy,
-                    AssignedAt = DateTime.UtcNow
-                });
-            }
+                UserId = userId,
+                RoleId = roleId,
+                AssignedBy = assignedBy,
+                AssignedAt = DateTime.UtcNow
+            });
 
             await _db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);

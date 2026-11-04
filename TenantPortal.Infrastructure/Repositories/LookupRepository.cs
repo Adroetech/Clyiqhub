@@ -14,23 +14,17 @@ namespace TenantPortal.Infrastructure.Repositories
 
         public async Task<IReadOnlyList<CityDto>> GetCitiesByCountryAsync(Guid countryId, CancellationToken ct)
         {
-            // NOTE: Change CityName column if your table uses different name (ex: Name).
-            var rows = await _db.Database.SqlQueryRaw<CityDto>($@"
-                SELECT
-                    CityId   AS CityId,
-                    CityName AS CityName
-                FROM dbo.City WITH (NOLOCK)
-                WHERE CountryId = {{0}}
-                ORDER BY CityName", countryId
-            ).ToListAsync(ct);
-
-            return rows;
+            return await _db.Cities.AsNoTracking()
+                .Where(c => c.CountryId == countryId)
+                .OrderByDescending(c => c.CreatedAt)
+                .Select(c => new CityDto { CityId = c.CityId, CityName = c.CityName })
+                .ToListAsync(ct);
         }
 
         public async Task<IReadOnlyList<CountryDto>> GetCountriesAsync(CancellationToken ct)
         {
             return await _db.Countries.AsNoTracking()
-                .OrderBy(c => c.Name)
+                .OrderByDescending(c => c.CreatedAt)
                 .Select(c => new CountryDto { CountryId = c.CountryId, CountryCode = c.CountryCode, Name = c.Name })
                 .ToListAsync(ct);
         }
@@ -38,7 +32,7 @@ namespace TenantPortal.Infrastructure.Repositories
         public async Task<IReadOnlyList<LanguageDto>> GetLanguagesAsync(CancellationToken ct)
         {
             return await _db.Languages.AsNoTracking()
-                .OrderBy(l => l.LanguageName)
+                .OrderByDescending(l => l.CreatedAt)
                 .Select(l => new LanguageDto
                 {
                     LanguageId = l.LanguageId,
@@ -76,23 +70,10 @@ namespace TenantPortal.Infrastructure.Repositories
             };
         }
 
-        public async Task<IReadOnlyList<SubscriptionPlanDto>> GetSubscriptionPlansAsync(CancellationToken ct)
-        {
-            // Materialize first: EF pushes an in-projection "(int)p.Provider" cast
-            // down into SQL (CAST(nvarchar AS int) on the varchar-backed column),
-            // which blows up at runtime. Casting client-side avoids that.
-            var rows = await _db.SubscriptionPlans.AsNoTracking()
-                .Where(p => p.Status == SubscriptionPlanStatus.Active)
-                .OrderBy(p => p.Name)
-                .ToListAsync(ct);
-
-            return rows.Select(p => new SubscriptionPlanDto { Id = p.Id, Name = p.Name, Provider = (int)p.Provider, PricePerMonth = p.PricePerMonth }).ToList();
-        }
-
         public async Task<IReadOnlyList<SegmentDto>> GetSegmentsAsync(CancellationToken ct)
         {
             return await _db.Segments.AsNoTracking()
-                .OrderBy(s => s.Name)
+                .OrderByDescending(s => s.CreatedAt)
                 .Select(s => new SegmentDto { SegmentId = s.SegmentId, Name = s.Name })
                 .ToListAsync(ct);
         }
@@ -101,7 +82,7 @@ namespace TenantPortal.Infrastructure.Repositories
         {
             return await _db.Currencies.AsNoTracking()
                 .Where(c => c.IsActive)
-                .OrderBy(c => c.IsoCode)
+                .OrderByDescending(c => c.CreateDate)
                 .Select(c => new CurrencyDto { IsoCode = c.IsoCode, Name = c.CurrencyName })
                 .ToListAsync(ct);
         }
@@ -109,7 +90,7 @@ namespace TenantPortal.Infrastructure.Repositories
         public async Task<IReadOnlyList<VendorDto>> GetVendorsAsync(CancellationToken ct)
         {
             return await _db.Vendors.AsNoTracking()
-                .OrderBy(v => v.Name)
+                .OrderByDescending(v => v.CreatedAt)
                 .Select(v => new VendorDto { Id = v.Id, Name = v.Name })
                 .ToListAsync(ct);
         }
@@ -117,7 +98,7 @@ namespace TenantPortal.Infrastructure.Repositories
         public async Task<IReadOnlyList<RegionDto>> GetRegionsAsync(CancellationToken ct)
         {
             return await _db.Regions.AsNoTracking()
-                .OrderBy(r => r.Name)
+                .OrderByDescending(r => r.CreatedAt)
                 .Select(r => new RegionDto { Id = r.Id, Name = r.Name })
                 .ToListAsync(ct);
         }
@@ -134,7 +115,7 @@ namespace TenantPortal.Infrastructure.Repositories
         {
             return await _db.PaymentTerms.AsNoTracking()
                 .Where(p => p.IsActive)
-                .OrderBy(p => p.Name)
+                .OrderByDescending(p => p.CreatedAt)
                 .Select(p => new PaymentTermDto { Id = p.Id, Code = p.Code, Name = p.Name })
                 .ToListAsync(ct);
         }
@@ -155,7 +136,7 @@ namespace TenantPortal.Infrastructure.Repositories
             }
 
             return await query
-                .OrderBy(p => p.Sku)
+                .OrderByDescending(p => p.CreatedAt)
                 .Select(p => new PriceListSkuDto
                 {
                     Id = p.Id,
@@ -166,27 +147,6 @@ namespace TenantPortal.Infrastructure.Repositories
                     SalesPrice = p.SalesPrice
                 })
                 .ToListAsync(ct);
-        }
-
-        public async Task<SubscriptionPlanDto> CreateSubscriptionPlanAsync(CreateSubscriptionPlanRequest req, Guid actorUserId, CancellationToken ct)
-        {
-            var plan = new SubscriptionPlan
-            {
-                Id = Guid.NewGuid(),
-                SubscriptionId = Guid.NewGuid(),
-                Name = req.Name.Trim(),
-                Provider = req.Provider,
-                Status = SubscriptionPlanStatus.Active,
-                Qty = req.Qty,
-                PricePerMonth = req.PricePerMonth,
-                CreatedBy = actorUserId,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _db.SubscriptionPlans.Add(plan);
-            await _db.SaveChangesAsync(ct);
-
-            return new SubscriptionPlanDto { Id = plan.Id, Name = plan.Name, Provider = (int)plan.Provider, PricePerMonth = plan.PricePerMonth };
         }
 
         public async Task<CountryDto> CreateCountryAsync(CreateCountryRequest req, CancellationToken ct)

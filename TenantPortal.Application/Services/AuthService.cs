@@ -98,6 +98,15 @@ namespace TenantPortal.Application.Services
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
+        // Every seeded demo/test account (SeedCoreData.SeedFirstSuperAdminAsync,
+        // SeedPlatformUsers) uses one of these two non-deliverable domains — an
+        // OTP email to them would never arrive, so the new-device MFA gate is
+        // skipped for them specifically rather than for real tenant accounts
+        // (whose email domains never end this way).
+        private static bool IsSeededTestDomain(string email) =>
+            email.EndsWith("@platform.local", StringComparison.OrdinalIgnoreCase) ||
+            email.EndsWith("@tenant.local", StringComparison.OrdinalIgnoreCase);
+
         public async Task<(bool ok, string? errorCode)> ForgotPasswordAsync(
     string email,
     string? resetUrl,
@@ -292,7 +301,7 @@ Clyiq Team";
             // (same mechanism as "Sign in with Email Code"), and only gets
             // added to KnownDevices once that code is verified below.
             var deviceFingerprint = ComputeDeviceFingerprint(ua, ip);
-            var isKnownDevice = await _knownDevices.IsKnownAsync(user.UserId, deviceFingerprint, ct);
+            var isKnownDevice = await _knownDevices.IsKnownAsync(user.UserId, deviceFingerprint, ct) || IsSeededTestDomain(user.Email);
 
             if (!isKnownDevice)
             {
@@ -319,6 +328,7 @@ Clyiq Team";
             }
 
             var (roleSlug, countries) = await BuildScopeAsync(user.UserId, user.RoleId, user.Role.Slug, user.Role.RoleType, ct);
+            var permissions = await _authz.GetRolePermissionCodesAsync(user.RoleId, ct);
 
             var access = _tokens.IssueToken(
                 user.UserId,
@@ -346,7 +356,8 @@ Clyiq Team";
                 Name = user.Name,
                 RoleName = user.Role.Name,
                 RoleType = (int)user.Role.RoleType,
-                TenantId = user.TenantId
+                TenantId = user.TenantId,
+                Permissions = permissions.ToList()
             });
         }
 
@@ -483,6 +494,7 @@ Clyiq Team";
             }
 
             var (roleSlug, countries) = await BuildScopeAsync(user.UserId, user.RoleId, user.Role.Slug, user.Role.RoleType, ct);
+            var permissions = await _authz.GetRolePermissionCodesAsync(user.RoleId, ct);
 
             var access = _tokens.IssueToken(
                 user.UserId,
@@ -506,7 +518,8 @@ Clyiq Team";
                 Name = user.Name,
                 RoleName = user.Role.Name,
                 RoleType = (int)user.Role.RoleType,
-                TenantId = user.TenantId
+                TenantId = user.TenantId,
+                Permissions = permissions.ToList()
             });
         }
 
@@ -622,6 +635,7 @@ Business Made Simple";
 
             // === CHANGES START: rebuild scope & re-issue token with scope ===
             var (roleSlug, countries) = await BuildScopeAsync(user.UserId, user.RoleId, user.Role.Slug, user.Role.RoleType, ct);
+            var permissions = await _authz.GetRolePermissionCodesAsync(user.RoleId, ct);
 
             var access = _tokens.IssueToken(
                 user.UserId,
@@ -647,7 +661,8 @@ Business Made Simple";
                 Name = user.Name,
                 RoleName = user.Role.Name,
                 RoleType = (int)user.Role.RoleType,
-                TenantId = user.TenantId
+                TenantId = user.TenantId,
+                Permissions = permissions.ToList()
             });
         }
 

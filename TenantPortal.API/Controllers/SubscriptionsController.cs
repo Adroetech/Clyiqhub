@@ -17,7 +17,9 @@ namespace TenantPortal.API.Controllers
     [ApiController]
     [Route("api/subscriptions")]
     [Authorize]
-    [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
+    // Role x Function matrix: "Manage subscriptions" = Own-tenant for
+    // TenantAdmin, "View assigned" (view-only) for TenantUser.
+    [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin, RoleType.TenantAdmin, RoleType.TenantUser)]
     public class SubscriptionsController : ControllerBase
     {
         private readonly ISubscriptionsService _svc;
@@ -26,11 +28,25 @@ namespace TenantPortal.API.Controllers
         private Guid CurrentUserId => Guid.Parse(User.FindFirst("user_id")!.Value);
         private string RoleSlug => User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? "";
 
+        private Guid? CurrentTenantId
+        {
+            get
+            {
+                var raw = User.FindFirst("tenant_id")?.Value;
+                return Guid.TryParse(raw, out var v) ? v : null;
+            }
+        }
+
+        // Tenant-scoped callers (TenantAdmin/TenantUser) may only act on
+        // their own tenant's subscriptions — enforced here since the route
+        // already carries the exact tenantId for every single-record action.
+        private bool TenantMismatch(Guid tenantId) => CurrentTenantId.HasValue && CurrentTenantId.Value != tenantId;
+
         [HttpGet]
         [RequirePermission("subscription", "view")]
         public async Task<IActionResult> List([FromQuery] SubscriptionQuery q, CancellationToken ct)
         {
-            var (total, rows) = await _svc.ListAsync(q, ct);
+            var (total, rows) = await _svc.ListAsync(q, CurrentTenantId, ct);
             return Ok(ApiListResponse<SubscriptionListItemDto>.Success(rows.ToList(), total, q.Page, q.PageSize));
         }
 
@@ -38,6 +54,8 @@ namespace TenantPortal.API.Controllers
         [RequirePermission("subscription", "view")]
         public async Task<IActionResult> GetById([FromRoute] Guid tenantId, [FromRoute] Guid subscriptionId, CancellationToken ct)
         {
+            if (TenantMismatch(tenantId)) return Forbid();
+
             var dto = await _svc.GetAsync(tenantId, subscriptionId, ct);
             return dto == null
                 ? NotFound(ApiResult.Failure("Subscription not found."))
@@ -48,7 +66,7 @@ namespace TenantPortal.API.Controllers
         [RequirePermission("subscription", "create")]
         public async Task<IActionResult> Create([FromBody] SubscriptionCreateRequest req, CancellationToken ct)
         {
-            await _svc.CreateAsync(req, CurrentUserId, RoleSlug, ct);
+            await _svc.CreateAsync(req, CurrentUserId, RoleSlug, CurrentTenantId, ct);
             return StatusCode(201, ApiResult.Success("Subscription assigned successfully."));
         }
 
@@ -56,6 +74,8 @@ namespace TenantPortal.API.Controllers
         [RequirePermission("subscription", "edit")]
         public async Task<IActionResult> Update([FromRoute] Guid tenantId, [FromRoute] Guid subscriptionId, [FromBody] SubscriptionUpdateRequest req, CancellationToken ct)
         {
+            if (TenantMismatch(tenantId)) return Forbid();
+
             await _svc.UpdateAsync(tenantId, subscriptionId, req, CurrentUserId, RoleSlug, ct);
             return Ok(ApiResult.Success("Subscription updated successfully."));
         }
@@ -64,6 +84,8 @@ namespace TenantPortal.API.Controllers
         [RequirePermission("subscription", "deactivate")]
         public async Task<IActionResult> Deactivate([FromRoute] Guid tenantId, [FromRoute] Guid subscriptionId, CancellationToken ct)
         {
+            if (TenantMismatch(tenantId)) return Forbid();
+
             await _svc.DeactivateAsync(tenantId, subscriptionId, CurrentUserId, RoleSlug, ct);
             return Ok(ApiResult.Success("Subscription deactivated successfully."));
         }

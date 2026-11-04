@@ -3,8 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TenantPortal.API.Auth;
 using TenantPortal.Application.DTOs.Agreement;
-using TenantPortal.Application.DTOs.Order;
-using TenantPortal.Application.DTOs.TenantSubscription;
+using TenantPortal.Application.DTOs.Tenant;
 using TenantPortal.Application.Interfaces.Services;
 using TenantPortal.Domain.Entities.Rbac;
 
@@ -13,15 +12,39 @@ namespace TenantPortal.API.Controllers
     [ApiController]
     [Route("api/tenants/{tenantId:guid}")]
     [Authorize]
+    // Previously had no RequireRoleType gate at all on this class — any
+    // authenticated user (any role, any tenant) could fetch any other
+    // tenant's full detail page / agreements / orders / subscriptions /
+    // support tickets / invoices / users by guessing a tenantId. Role x
+    // Function matrix: "View all tenants" = No for TenantAdmin/TenantUser —
+    // the TenantOwnership check below additionally restricts them to their
+    // own tenant specifically (PlatformUser, having no tenant_id claim and
+    // zero grants anywhere, is excluded entirely).
+    [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin, RoleType.TenantAdmin, RoleType.TenantUser)]
     public class TenantDetailController : ControllerBase
     {
         private readonly ITenantDetailService _svc;
         public TenantDetailController(ITenantDetailService svc) => _svc = svc;
 
-        [HttpGet("detail")]
+        private Guid? CurrentTenantId
+        {
+            get
+            {
+                var raw = User.FindFirst("tenant_id")?.Value;
+                return Guid.TryParse(raw, out var v) ? v : null;
+            }
+        }
 
+        // TenantAdmin/TenantUser (the only roles with a tenant_id claim) may
+        // only ever reach their own tenant's nested detail/tabs.
+        private IActionResult? TenantOwnershipCheck(Guid tenantId) =>
+            CurrentTenantId.HasValue && CurrentTenantId.Value != tenantId ? Forbid() : null;
+
+        [HttpGet("detail")]
         public async Task<IActionResult> Detail([FromRoute] Guid tenantId, CancellationToken ct)
         {
+            if (TenantOwnershipCheck(tenantId) is { } forbidden) return forbidden;
+
             var dto = await _svc.GetTenantDetailAsync(tenantId, ct);
             return dto == null ? NotFound() : Ok(dto);
         }
@@ -29,45 +52,54 @@ namespace TenantPortal.API.Controllers
         // Lazy-loaded tab endpoints
         [HttpGet("subscriptions")]
         public async Task<IActionResult> Subscriptions([FromRoute] Guid tenantId, CancellationToken ct)
-            => Ok(await _svc.GetSubscriptionsAsync(tenantId, ct));
+        {
+            if (TenantOwnershipCheck(tenantId) is { } forbidden) return forbidden;
+            return Ok(await _svc.GetSubscriptionsAsync(tenantId, ct));
+        }
 
         [HttpGet("agreements")]
         public async Task<IActionResult> Agreements([FromRoute] Guid tenantId, CancellationToken ct)
-            => Ok(await _svc.GetAgreementsAsync(tenantId, ct));
+        {
+            if (TenantOwnershipCheck(tenantId) is { } forbidden) return forbidden;
+            return Ok(await _svc.GetAgreementsAsync(tenantId, ct));
+        }
 
         [HttpGet("orders")]
         public async Task<IActionResult> Orders([FromRoute] Guid tenantId, CancellationToken ct)
-            => Ok(await _svc.GetOrdersAsync(tenantId, ct));
+        {
+            if (TenantOwnershipCheck(tenantId) is { } forbidden) return forbidden;
+            return Ok(await _svc.GetOrdersAsync(tenantId, ct));
+        }
 
         [HttpGet("support-tickets")]
         public async Task<IActionResult> Support([FromRoute] Guid tenantId, CancellationToken ct)
-            => Ok(await _svc.GetSupportAsync(tenantId, ct));
+        {
+            if (TenantOwnershipCheck(tenantId) is { } forbidden) return forbidden;
+            return Ok(await _svc.GetSupportAsync(tenantId, ct));
+        }
 
+        // Role x Function matrix: "View invoices/payments" — the one nested
+        // tab with its own dedicated permission code (the rest of this
+        // controller's tabs are covered by simply being allowed onto the
+        // tenant's own detail page at all; there's no separate "view
+        // agreements/orders/subscriptions-tab" row in the matrix).
         [HttpGet("invoices")]
+        [RequirePermission("invoices", "view", tenantKey: "tenantId")]
         public async Task<IActionResult> Billing([FromRoute] Guid tenantId, CancellationToken ct)
-            => Ok(await _svc.GetBillingAsync(tenantId, ct));
+        {
+            if (TenantOwnershipCheck(tenantId) is { } forbidden) return forbidden;
+            return Ok(await _svc.GetBillingAsync(tenantId, ct));
+        }
 
         [HttpGet("users")]
-
         public async Task<IActionResult> Users([FromRoute] Guid tenantId, CancellationToken ct)
-            => Ok(await _svc.GetUsersAsync(tenantId, ct));
-
-
-
-
-
+        {
+            if (TenantOwnershipCheck(tenantId) is { } forbidden) return forbidden;
+            return Ok(await _svc.GetUsersAsync(tenantId, ct));
+        }
 
         private Guid CurrentUserId => Guid.Parse(User.FindFirst("user_id")!.Value);
         private string RoleSlug => User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? "";
-
-        [HttpPost("subscriptions")]
-        [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
-        [RequirePermission("subscription", "create")]
-        public async Task<IActionResult> AddSubscription([FromRoute] Guid tenantId, [FromBody] TenantSubscriptionCreateRequest req, CancellationToken ct)
-        {
-            await _svc.AddSubscriptionAsync(tenantId, req, CurrentUserId, RoleSlug, ct);
-            return StatusCode(201, new { ok = true });
-        }
 
         [HttpPost("agreements")]
         [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
@@ -108,32 +140,6 @@ namespace TenantPortal.API.Controllers
             return Ok(new { ok = true });
         }
 
-        [HttpPost("orders")]
-        [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
-        [RequirePermission("order", "create")]
-        public async Task<IActionResult> CreateOrder([FromRoute] Guid tenantId, [FromBody] OrderCreateRequest req, CancellationToken ct)
-        {
-            var orderId = await _svc.CreateOrderAsync(tenantId, req, CurrentUserId, RoleSlug, ct);
-            return StatusCode(201, new { orderId });
-        }
-
-        [HttpPut("orders/{orderId:guid}/approve")]
-        [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
-        [RequirePermission("order", "approve")]
-        public async Task<IActionResult> ApproveOrder([FromRoute] Guid tenantId, [FromRoute] Guid orderId, CancellationToken ct)
-        {
-            await _svc.ApproveOrderAsync(tenantId, orderId, CurrentUserId, RoleSlug, ct);
-            return Ok(new { ok = true });
-        }
-
-        [HttpPut("orders/{orderId:guid}/reject")]
-        [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
-        [RequirePermission("order", "approve")]
-        public async Task<IActionResult> RejectOrder([FromRoute] Guid tenantId, [FromRoute] Guid orderId, CancellationToken ct)
-        {
-            await _svc.RejectOrderAsync(tenantId, orderId, CurrentUserId, RoleSlug, ct);
-            return Ok(new { ok = true });
-        }
     }
 
     // [FromForm] binding model for multipart Agreement creation (IFormFile can't
@@ -145,6 +151,11 @@ namespace TenantPortal.API.Controllers
     {
         public Guid? TenantId { get; set; }
         public Guid VendorId { get; set; }
+
+        // "Agreement ID" in the UI — only populated by AgreementsController's
+        // standalone create form; the nested tenant-detail create path above
+        // predates this field and doesn't collect it.
+        public string? AgreementCode { get; set; }
         public string? ContractNumber { get; set; }
         public string ContractType { get; set; } = "Monthly";
         public DateTime StartDate { get; set; }

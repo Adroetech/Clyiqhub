@@ -9,13 +9,18 @@ using TenantPortal.Infrastructure.Persistence;
 
 namespace TenantPortal.Infrastructure.Services
 {
+    // Standalone "Orders" sidebar screen. Admin Manual (26-10-2026) §3. One
+    // order fulfils exactly one Agreement Line, created together with the
+    // header in a single step — not a header-then-many-lines document.
     public class OrdersService : IOrdersService
     {
         private readonly AppDbContext _db;
         private readonly IAuthorizationRepository _authz;
         private readonly IUnitOfWork _uow;
+        private readonly IAuditLogRepository _audit;
 
         private static readonly string[] ValidPaymentTerms = { "Net15", "Net30", "Net45", "Net60" };
+        private static readonly string[] ValidBilling = { "Monthly", "Quarterly", "Half-Yearly", "Yearly" };
 
         private static readonly Dictionary<string, string> CurrencyByCountryCode = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -25,16 +30,14 @@ namespace TenantPortal.Infrastructure.Services
             ["IN"] = "INR"
         };
 
-        public OrdersService(AppDbContext db, IAuthorizationRepository authz, IUnitOfWork uow)
+        public OrdersService(AppDbContext db, IAuthorizationRepository authz, IUnitOfWork uow, IAuditLogRepository audit)
         {
             _db = db;
             _authz = authz;
             _uow = uow;
+            _audit = audit;
         }
 
-        // Same scoping rule as TenantDetailService/AgreementsService:
-        // SuperAdmin sees/touches everything, Admin is restricted to their
-        // assigned countries.
         private static void RequireStaff(string roleSlug, out bool isOwner)
         {
             isOwner = roleSlug.Equals("SuperAdmin", StringComparison.OrdinalIgnoreCase);
@@ -67,58 +70,114 @@ namespace TenantPortal.Infrastructure.Services
         private IQueryable<OrderListItemDto> ProjectedQuery() =>
             from o in _db.Orders.AsNoTracking()
             join t in _db.Tenants.AsNoTracking() on o.TenantId equals t.TenantId
-            join p in _db.SubscriptionPlans.AsNoTracking() on o.SubscriptionPlanId equals p.Id into plans
-            from p in plans.DefaultIfEmpty()
-            join a in _db.Agreements.AsNoTracking() on o.ContractId equals a.AgreementId into agreements
+            join a in _db.Agreements.AsNoTracking() on o.AgreementId equals a.AgreementId into agreements
             from a in agreements.DefaultIfEmpty()
-            join s in _db.Segments.AsNoTracking() on o.SegmentId equals s.SegmentId into segments
-            from s in segments.DefaultIfEmpty()
+            join c in _db.Countries.AsNoTracking() on o.CountryId equals c.CountryId into countries
+            from c in countries.DefaultIfEmpty()
+            join r in _db.Regions.AsNoTracking() on o.RegionId equals r.Id into regions
+            from r in regions.DefaultIfEmpty()
+            join tg in _db.TaxGroups.AsNoTracking() on o.TaxGroupId equals tg.Id into taxGroups
+            from tg in taxGroups.DefaultIfEmpty()
             join inv in _db.Invoices.AsNoTracking() on o.OrderId equals inv.OrderId into invoices
             from inv in invoices.DefaultIfEmpty()
+            join cu in _db.SysUserInfo.AsNoTracking() on o.CreatedBy equals cu.UserId into createdUsers
+            from cu in createdUsers.DefaultIfEmpty()
+            join confu in _db.SysUserInfo.AsNoTracking() on o.ConfirmedBy equals confu.UserId into confirmedUsers
+            from confu in confirmedUsers.DefaultIfEmpty()
+            join cancu in _db.SysUserInfo.AsNoTracking() on o.CancelledBy equals cancu.UserId into cancelledUsers
+            from cancu in cancelledUsers.DefaultIfEmpty()
+            join invu in _db.SysUserInfo.AsNoTracking() on o.InvoicedBy equals invu.UserId into invoicedUsers
+            from invu in invoicedUsers.DefaultIfEmpty()
+            join compu in _db.SysUserInfo.AsNoTracking() on o.CompletedBy equals compu.UserId into completedUsers
+            from compu in completedUsers.DefaultIfEmpty()
             select new OrderListItemDto
             {
                 Id = o.OrderId,
-                SalesOrderNo = o.SalesOrderNo,
+                OrderNo = o.OrderNo,
+                OrderDate = o.OrderDate,
                 TenantId = o.TenantId,
+                TenantCode = t.TenantCode,
                 TenantName = t.TenantName,
-                Domain = o.Domain,
-                SubscriptionPlanId = o.SubscriptionPlanId,
-                SubscriptionPlanName = p != null ? p.Name : null,
-                AgreementId = o.ContractId,
-                AgreementContractNumber = a != null ? a.ContractNumber : null,
-                SegmentId = o.SegmentId,
-                SegmentName = s != null ? s.Name : null,
-                SalesDate = o.SalesDate,
-                Qty = o.Qty,
-                UnitPrice = o.UnitPrice,
-                Discount = o.Discount,
-                TaxPercent = o.TaxPercent,
-                Price = o.Price,
-                VatAmount = o.VatAmount,
-                TotalPayable = o.TotalPayable,
-                NetPayable = o.NetPayable,
+                AgreementId = o.AgreementId,
+                AgreementCode = a != null ? a.AgreementCode : null,
+                DomainName = o.DomainName,
+                CountryId = o.CountryId,
+                CountryName = c != null ? c.Name : null,
+                RegionId = o.RegionId,
+                RegionName = r != null ? r.Name : null,
+                Currency = o.Currency,
                 PaymentTerm = o.PaymentTerm,
+                BillingFrequency = o.BillingFrequency,
+                CustomerReference = o.CustomerReference,
                 Status = (int)o.Status,
+                PaymentStatus = (int)o.PaymentStatus,
+                Remarks = o.Remarks,
+                DocumentPath = o.DocumentPath,
                 CreatedAt = o.CreatedAt,
+                CreatedByName = cu != null ? cu.Name : null,
+                ConfirmedAt = o.ConfirmedAt,
+                ConfirmedByName = confu != null ? confu.Name : null,
+                CancelledAt = o.CancelledAt,
+                CancelledByName = cancu != null ? cancu.Name : null,
+                InvoicedAt = o.InvoicedAt,
+                InvoicedByName = invu != null ? invu.Name : null,
+                CompletedAt = o.CompletedAt,
+                CompletedByName = compu != null ? compu.Name : null,
+
+                // The order's single Agreement Line, merged onto the header.
+                AgreementLineId = o.AgreementLineId,
+                PriceListItemId = o.PriceListItemId,
+                Sku = o.Sku,
+                SkuName = o.SkuName,
+                Segment = o.Segment,
+                Category = o.Category,
+                StartDate = o.StartDate,
+                EndDate = o.EndDate,
+                DurationMonths = o.DurationMonths,
+                Quantity = o.Quantity,
+                ListPrice = o.ListPrice,
+                LineDiscountPercent = o.DiscountPercent,
+                LineDiscountAmount = o.DiscountAmount,
+                UnitPrice = o.UnitPrice,
+                TaxGroupId = o.TaxGroupId,
+                TaxGroupName = tg != null ? tg.Name : null,
+                TaxRate = o.TaxRate,
+
+                // Order Summary (aggregate) — with a single line, these are
+                // just that line's own figures: GrossAmount pre-discount,
+                // DiscountAmount the monetary effect of the Agreement Line's
+                // discount, TaxableAmount/NetPayable mirroring Amount/TotalAmount.
+                GrossAmount = o.ListPrice * o.Quantity * o.DurationMonths,
+                DiscountAmount = (o.ListPrice * o.Quantity * o.DurationMonths) - o.Amount,
+                TaxableAmount = o.Amount,
+                TaxAmount = o.TaxAmount,
+                NetPayable = o.TotalAmount,
+
                 InvoiceId = inv != null ? inv.InvoiceId : (Guid?)null,
                 InvoiceStatus = inv != null ? inv.Status : null,
                 InvoiceCreditApprovedAt = inv != null ? inv.CreditApprovedAt : null
             };
 
-        public async Task<(int total, IReadOnlyList<OrderListItemDto> rows)> ListAsync(OrderQuery q, CancellationToken ct)
+        public async Task<(int total, IReadOnlyList<OrderListItemDto> rows)> ListAsync(OrderQuery q, Guid? callerTenantId, CancellationToken ct)
         {
             q.Page = Math.Max(1, q.Page);
             q.PageSize = Math.Clamp(q.PageSize, 1, 200);
 
             var query = ProjectedQuery();
 
+            // Role x Function matrix: "Manage orders" = "Own tenant" for
+            // TenantAdmin/TenantUser — callerTenantId is only ever populated
+            // for those two roles (from the JWT tenant_id claim).
+            if (callerTenantId.HasValue)
+                query = query.Where(o => o.TenantId == callerTenantId.Value);
+
             if (!string.IsNullOrWhiteSpace(q.Search))
             {
                 var s = q.Search.Trim().ToLowerInvariant();
                 query = query.Where(o =>
-                    o.SalesOrderNo.ToLower().Contains(s) ||
+                    o.OrderNo.ToLower().Contains(s) ||
                     o.TenantName.ToLower().Contains(s) ||
-                    o.Domain.ToLower().Contains(s));
+                    (o.DomainName != null && o.DomainName.ToLower().Contains(s)));
             }
 
             if (!string.IsNullOrWhiteSpace(q.Status) && Enum.TryParse<OrderStatus>(q.Status, true, out var statusFilter))
@@ -135,18 +194,12 @@ namespace TenantPortal.Infrastructure.Services
             return (total, rows);
         }
 
-        public async Task<OrderListItemDto?> GetAsync(Guid id, CancellationToken ct) =>
-            await ProjectedQuery().FirstOrDefaultAsync(o => o.Id == id, ct);
-
-        private static void ValidateCore(int qty, decimal unitPrice, decimal taxPercent, string paymentTerm, string domain)
+        public async Task<OrderListItemDto?> GetAsync(Guid id, Guid? callerTenantId, CancellationToken ct)
         {
-            if (qty < 1) throw new DomainException("INVALID_QTY", "Qty must be >= 1.");
-            if (unitPrice < 0) throw new DomainException("INVALID_UNIT_PRICE", "UnitPrice cannot be negative.");
-            if (taxPercent < 0 || taxPercent > 100) throw new DomainException("INVALID_TAX_PERCENT", "TaxPercent must be between 0 and 100.");
-            if (!ValidPaymentTerms.Contains(paymentTerm, StringComparer.OrdinalIgnoreCase))
-                throw new DomainException("INVALID_PAYMENT_TERM", "PaymentTerm must be one of Net15, Net30, Net45, Net60.");
-            if (string.IsNullOrWhiteSpace(domain))
-                throw new DomainException("DOMAIN_REQUIRED", "Domain is required.");
+            var dto = await ProjectedQuery().FirstOrDefaultAsync(o => o.Id == id, ct);
+            if (dto is null) return null;
+            if (callerTenantId.HasValue && dto.TenantId != callerTenantId.Value) return null;
+            return dto;
         }
 
         private async Task<Agreement> ValidateAgreementAsync(Guid agreementId, Guid tenantId, CancellationToken ct)
@@ -160,71 +213,125 @@ namespace TenantPortal.Infrastructure.Services
             return agreement;
         }
 
-        // Matches the Admin Manual's formula exactly (§6.3): VAT applies to
-        // the gross price (before discount), and the discount is subtracted
-        // only at the very end from the VAT-inclusive total.
-        private static (decimal price, decimal vatAmount, decimal totalPayable, decimal netPayable) Calculate(
-            int qty, decimal unitPrice, decimal discount, decimal taxPercent)
+        private static void ValidateHeader(string paymentTerm, string? billingFrequency)
         {
-            var price = qty * unitPrice;
-            var discountAmount = price * (discount / 100m);
-            var vatAmount = price * (taxPercent / 100m);
-            var totalPayable = price + vatAmount;
-            var netPayable = totalPayable - discountAmount;
-            if (netPayable < 0) netPayable = 0;
-            return (price, vatAmount, totalPayable, netPayable);
+            if (!ValidPaymentTerms.Contains(paymentTerm, StringComparer.OrdinalIgnoreCase))
+                throw new DomainException("INVALID_PAYMENT_TERM", "PaymentTerm must be one of Net15, Net30, Net45, Net60.");
+            if (!string.IsNullOrWhiteSpace(billingFrequency) && !ValidBilling.Contains(billingFrequency, StringComparer.OrdinalIgnoreCase))
+                throw new DomainException("INVALID_BILLING", "BillingFrequency must be Monthly, Quarterly, Half-Yearly or Yearly.");
+        }
+
+        // Admin Manual's "price per unit x Qty" formula extended with a
+        // duration factor: 99 (Agreement Line's net Amount) x 3 (Qty) x 4
+        // (months Start..End covers) = 1188. Rounds to the nearest whole
+        // month; a same-day-or-earlier End is treated as 1 month.
+        private static int MonthsBetween(DateTime start, DateTime end)
+        {
+            if (end <= start) return 1;
+            var totalDays = (end.Date - start.Date).Days;
+            return Math.Max(1, (int)Math.Round(totalDays / 30.0, MidpointRounding.AwayFromZero));
+        }
+
+        private async Task<(decimal rate, Guid? taxGroupId)> ResolveTaxRateAsync(Guid? taxGroupId, Guid? countryId, CancellationToken ct)
+        {
+            TaxGroup? taxGroup = null;
+            if (taxGroupId.HasValue)
+            {
+                taxGroup = await _db.TaxGroups.AsNoTracking().FirstOrDefaultAsync(tg => tg.Id == taxGroupId.Value && tg.IsActive, ct)
+                    ?? throw new DomainException("TAX_GROUP_NOT_FOUND", "Tax Group not found or inactive.");
+            }
+            else if (countryId.HasValue)
+            {
+                taxGroup = await _db.TaxGroups.AsNoTracking()
+                    .Where(tg => tg.CountryId == countryId.Value && tg.IsActive)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            return (taxGroup?.Rate ?? 0, taxGroup?.Id);
         }
 
         public async Task<Guid> CreateAsync(OrderCreateRequest req, Guid actorUserId, string roleSlug, CancellationToken ct)
         {
             RequireStaff(roleSlug, out var isOwner);
 
-            if (req.TenantId is null || req.TenantId == Guid.Empty)
-                throw new DomainException("TENANT_REQUIRED", "Tenant is required.");
-
             var tenant = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(x => x.TenantId == req.TenantId, ct)
-                ?? throw new NotFoundException("Tenant", req.TenantId.Value);
+                ?? throw new NotFoundException("Tenant", req.TenantId);
 
             await EnsureCountryInScopeAsync(isOwner, actorUserId, tenant.CountryId, ct);
 
-            ValidateCore(req.Qty, req.UnitPrice, req.TaxPercent, req.PaymentTerm, req.Domain);
-            await ValidateAgreementAsync(req.AgreementId, req.TenantId.Value, ct);
+            ValidateHeader(req.PaymentTerm, req.BillingFrequency);
+            var agreement = await ValidateAgreementAsync(req.AgreementId, req.TenantId, ct);
 
-            var planExists = await _db.SubscriptionPlans.AsNoTracking().AnyAsync(p => p.Id == req.SubscriptionPlanId, ct);
-            if (!planExists)
-                throw new DomainException("SUBSCRIPTION_PLAN_NOT_FOUND", "Subscription plan not found.");
+            // The Agreement Line is picked directly — it must belong to the
+            // chosen Agreement — and its Amount (already net of the agreed
+            // discount) becomes this order's UnitPrice as-is.
+            var agreementLine = await _db.AgreementLines.AsNoTracking()
+                .FirstOrDefaultAsync(al => al.Id == req.AgreementLineId && al.AgreementId == req.AgreementId, ct)
+                ?? throw new DomainException("AGREEMENT_LINE_NOT_FOUND", "This Agreement Line is not part of the linked Agreement.");
 
-            var segmentExists = await _db.Segments.AsNoTracking().AnyAsync(s => s.SegmentId == req.SegmentId, ct);
-            if (!segmentExists)
-                throw new DomainException("SEGMENT_NOT_FOUND", "Segment not found.");
+            var item = await _db.PriceListItems.AsNoTracking().FirstOrDefaultAsync(p => p.Id == agreementLine.PriceListItemId, ct)
+                ?? throw new NotFoundException("PriceListItem", agreementLine.PriceListItemId);
 
-            var (price, vatAmount, totalPayable, netPayable) = Calculate(req.Qty, req.UnitPrice, req.Discount, req.TaxPercent);
+            if (req.Quantity <= 0)
+                throw new DomainException("INVALID_QUANTITY", "Quantity must be greater than zero.");
 
-            var salesOrderNo = await NextSequenceNumberAsync("SO", DateTime.UtcNow,
+            var startDate = req.StartDate.Date;
+            var endDate = req.EndDate.Date;
+            if (endDate <= startDate)
+                throw new DomainException("INVALID_DATES", "End Date must be after Start Date.");
+
+            // Amount = unit price (from the Agreement Line, net of discount)
+            // x Quantity x number of months the Start..End span covers —
+            // e.g. 99 x 3 x 4 months = 1188.
+            var durationMonths = MonthsBetween(startDate, endDate);
+            var unitPrice = agreementLine.Amount;
+            var amount = Math.Round(unitPrice * req.Quantity * durationMonths, 2);
+
+            var (taxRate, resolvedTaxGroupId) = await ResolveTaxRateAsync(req.TaxGroupId, tenant.CountryId, ct);
+            var taxAmount = Math.Round(amount * (taxRate / 100m), 2);
+
+            var orderNo = await NextSequenceNumberAsync("SO", DateTime.UtcNow,
                 (start, end, token) => _db.Orders.CountAsync(o => o.CreatedAt >= start && o.CreatedAt < end, token), ct);
 
             var order = new Order
             {
                 OrderId = Guid.NewGuid(),
-                SalesOrderNo = salesOrderNo,
-                TenantId = req.TenantId.Value,
-                SubscriptionPlanId = req.SubscriptionPlanId,
-                ContractId = req.AgreementId,
-                Domain = req.Domain.Trim(),
-                SegmentId = req.SegmentId,
-                SalesDate = req.SalesDate.Date,
-                Qty = req.Qty,
-                UnitPrice = req.UnitPrice,
-                Discount = req.Discount,
-                TaxPercent = req.TaxPercent,
-                Price = price,
-                VatAmount = vatAmount,
-                TotalPayable = totalPayable,
-                NetPayable = netPayable,
+                OrderNo = orderNo,
+                OrderDate = req.OrderDate.Date,
+                TenantId = req.TenantId,
+                AgreementId = req.AgreementId,
+                DomainName = tenant.Domain,
+                CountryId = tenant.CountryId,
+                RegionId = agreement.RegionId,
+                Currency = agreement.Currency,
                 PaymentTerm = req.PaymentTerm,
-                Status = OrderStatus.PendingApproval,
+                BillingFrequency = req.BillingFrequency ?? agreementLine.Billing,
+                CustomerReference = req.CustomerReference,
+                Remarks = req.Remarks,
+                Status = OrderStatus.Draft,
+                PaymentStatus = OrderPaymentStatus.Unpaid,
                 CreatedBy = actorUserId,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+
+                AgreementLineId = agreementLine.Id,
+                PriceListItemId = item.Id,
+                Sku = item.Sku,
+                SkuName = item.Description,
+                Segment = item.Segment.ToString(),
+                Category = item.Category.ToString(),
+                StartDate = startDate,
+                EndDate = endDate,
+                DurationMonths = durationMonths,
+                Quantity = req.Quantity,
+                ListPrice = agreementLine.ListPrice,
+                DiscountPercent = agreementLine.DiscountPercent,
+                DiscountAmount = agreementLine.DiscountAmount,
+                UnitPrice = unitPrice,
+                Amount = amount,
+                TaxGroupId = resolvedTaxGroupId,
+                TaxRate = taxRate,
+                TaxAmount = taxAmount,
+                TotalAmount = amount + taxAmount
             };
 
             await _uow.Repository<Order>().AddAsync(order);
@@ -245,39 +352,20 @@ namespace TenantPortal.Infrastructure.Services
 
             await EnsureCountryInScopeAsync(isOwner, actorUserId, tenant.CountryId, ct);
 
-            // Once approved, an Invoice + Transaction already exist against
-            // this Order's figures — editing would desync them, so edits
-            // are only allowed while still PendingApproval.
-            if (order.Status != OrderStatus.PendingApproval)
-                throw new DomainException("ORDER_LOCKED", "Only orders pending approval can be edited.");
+            if (order.Status != OrderStatus.Draft)
+                throw new DomainException("ORDER_LOCKED", "Only orders in Draft can be edited.");
 
-            ValidateCore(req.Qty, req.UnitPrice, req.TaxPercent, req.PaymentTerm, req.Domain);
-            await ValidateAgreementAsync(req.AgreementId, order.TenantId, ct);
+            ValidateHeader(req.PaymentTerm, req.BillingFrequency);
+            var agreement = await ValidateAgreementAsync(req.AgreementId, order.TenantId, ct);
 
-            var planExists = await _db.SubscriptionPlans.AsNoTracking().AnyAsync(p => p.Id == req.SubscriptionPlanId, ct);
-            if (!planExists)
-                throw new DomainException("SUBSCRIPTION_PLAN_NOT_FOUND", "Subscription plan not found.");
-
-            var segmentExists = await _db.Segments.AsNoTracking().AnyAsync(s => s.SegmentId == req.SegmentId, ct);
-            if (!segmentExists)
-                throw new DomainException("SEGMENT_NOT_FOUND", "Segment not found.");
-
-            var (price, vatAmount, totalPayable, netPayable) = Calculate(req.Qty, req.UnitPrice, req.Discount, req.TaxPercent);
-
-            order.SubscriptionPlanId = req.SubscriptionPlanId;
-            order.ContractId = req.AgreementId;
-            order.Domain = req.Domain.Trim();
-            order.SegmentId = req.SegmentId;
-            order.SalesDate = req.SalesDate.Date;
-            order.Qty = req.Qty;
-            order.UnitPrice = req.UnitPrice;
-            order.Discount = req.Discount;
-            order.TaxPercent = req.TaxPercent;
-            order.Price = price;
-            order.VatAmount = vatAmount;
-            order.TotalPayable = totalPayable;
-            order.NetPayable = netPayable;
+            order.AgreementId = req.AgreementId;
+            order.OrderDate = req.OrderDate.Date;
+            order.RegionId = agreement.RegionId;
+            order.Currency = agreement.Currency;
             order.PaymentTerm = req.PaymentTerm;
+            order.BillingFrequency = req.BillingFrequency ?? order.BillingFrequency;
+            order.CustomerReference = req.CustomerReference;
+            order.Remarks = req.Remarks;
 
             await _uow.CompleteAsync();
         }
@@ -294,14 +382,15 @@ namespace TenantPortal.Infrastructure.Services
 
             await EnsureCountryInScopeAsync(isOwner, actorUserId, tenant.CountryId, ct);
 
-            if (order.Status != OrderStatus.PendingApproval)
-                throw new DomainException("ORDER_LOCKED", "Only orders pending approval can be deleted.");
+            // Admin Manual §3 validation: "Delete only in draft stage".
+            if (order.Status != OrderStatus.Draft)
+                throw new DomainException("ORDER_LOCKED", "Only orders in Draft can be deleted.");
 
             _db.Orders.Remove(order);
             await _uow.CompleteAsync();
         }
 
-        public async Task ApproveAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
+        private async Task<Order> LoadOrderForTransitionAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
         {
             RequireStaff(roleSlug, out var isOwner);
 
@@ -312,11 +401,52 @@ namespace TenantPortal.Infrastructure.Services
                 ?? throw new NotFoundException("Tenant", order.TenantId);
 
             await EnsureCountryInScopeAsync(isOwner, actorUserId, tenant.CountryId, ct);
+            return order;
+        }
 
-            if (order.Status != OrderStatus.PendingApproval)
-                throw new DomainException("NOT_PENDING", "Order is not pending approval.");
+        public async Task ConfirmAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
+        {
+            var order = await LoadOrderForTransitionAsync(id, actorUserId, roleSlug, ct);
+            if (order.Status != OrderStatus.Draft)
+                throw new DomainException("NOT_DRAFT", "Order is not in Draft status.");
 
-            order.Status = OrderStatus.Approved;
+            order.Status = OrderStatus.Confirmed;
+            order.ConfirmedBy = actorUserId;
+            order.ConfirmedAt = DateTime.UtcNow;
+
+            await _uow.CompleteAsync();
+        }
+
+        public async Task CancelAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
+        {
+            var order = await LoadOrderForTransitionAsync(id, actorUserId, roleSlug, ct);
+
+            // Admin Manual §3 validation: "if order is confirmed, then only
+            // canceled" — Draft and Confirmed can both still be cancelled;
+            // Invoiced/Completed cannot (an Invoice/Transaction already exist).
+            if (order.Status != OrderStatus.Draft && order.Status != OrderStatus.Confirmed)
+                throw new DomainException("ORDER_LOCKED", "Only Draft or Confirmed orders can be cancelled.");
+
+            order.Status = OrderStatus.Cancelled;
+            order.CancelledBy = actorUserId;
+            order.CancelledAt = DateTime.UtcNow;
+
+            await _uow.CompleteAsync();
+        }
+
+        public async Task MarkInvoicedAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
+        {
+            var order = await LoadOrderForTransitionAsync(id, actorUserId, roleSlug, ct);
+            if (order.Status != OrderStatus.Confirmed)
+                throw new DomainException("NOT_CONFIRMED", "Order must be Confirmed before it can be invoiced.");
+
+            var tenant = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(x => x.TenantId == order.TenantId, ct)
+                ?? throw new NotFoundException("Tenant", order.TenantId);
+
+            var now = DateTime.UtcNow;
+            order.Status = OrderStatus.Invoiced;
+            order.InvoicedBy = actorUserId;
+            order.InvoicedAt = now;
 
             // Get-or-create the tenant's BillingAccount — not a separate
             // step in the BRD, so it's provisioned automatically on first use.
@@ -338,9 +468,8 @@ namespace TenantPortal.Infrastructure.Services
                 .Where(c => c.CountryId == tenant.CountryId)
                 .Select(c => c.CountryCode)
                 .FirstOrDefaultAsync(ct);
-            var currency = currencyCode is not null && CurrencyByCountryCode.TryGetValue(currencyCode, out var mapped) ? mapped : "USD";
+            var currency = order.Currency ?? (currencyCode is not null && CurrencyByCountryCode.TryGetValue(currencyCode, out var mapped) ? mapped : "USD");
 
-            var now = DateTime.UtcNow;
             var invoiceNumber = await NextSequenceNumberAsync("INV", now,
                 (start, end, token) => _db.Invoices.CountAsync(i => i.IssuedDate >= start && i.IssuedDate < end, token), ct);
 
@@ -350,9 +479,9 @@ namespace TenantPortal.Infrastructure.Services
                 TenantId = order.TenantId,
                 OrderId = order.OrderId,
                 InvoiceNumber = invoiceNumber,
-                Amount = order.Price,
-                Tax = order.VatAmount ?? 0,
-                Total = order.TotalPayable,
+                Amount = order.Amount,
+                Tax = order.TaxAmount,
+                Total = order.TotalAmount,
                 // Invoices.Status is DB-constrained to exactly: Pending / overdue / unpaid / paid.
                 Status = "unpaid",
                 IssuedDate = now.Date,
@@ -371,7 +500,7 @@ namespace TenantPortal.Infrastructure.Services
                 Type = "invoice",
                 TransactionRef = invoice.InvoiceNumber,
                 Currency = currency,
-                DebitAmount = order.TotalPayable,
+                DebitAmount = order.TotalAmount,
                 CreditAmount = null,
                 Status = "posted",
                 OrderId = order.OrderId,
@@ -382,45 +511,81 @@ namespace TenantPortal.Infrastructure.Services
             await _uow.CompleteAsync();
         }
 
-        public async Task RejectAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
+        public async Task CompleteAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct)
         {
-            RequireStaff(roleSlug, out var isOwner);
+            var order = await LoadOrderForTransitionAsync(id, actorUserId, roleSlug, ct);
+            if (order.Status != OrderStatus.Invoiced)
+                throw new DomainException("NOT_INVOICED", "Order must be Invoiced before it can be completed.");
 
-            var order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == id, ct)
-                ?? throw new NotFoundException("Order", id);
-
-            var tenant = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(x => x.TenantId == order.TenantId, ct)
-                ?? throw new NotFoundException("Tenant", order.TenantId);
-
-            await EnsureCountryInScopeAsync(isOwner, actorUserId, tenant.CountryId, ct);
-
-            if (order.Status != OrderStatus.PendingApproval)
-                throw new DomainException("NOT_PENDING", "Order is not pending approval.");
-
-            order.Status = OrderStatus.Rejected;
+            order.Status = OrderStatus.Completed;
+            order.CompletedBy = actorUserId;
+            order.CompletedAt = DateTime.UtcNow;
             await _uow.CompleteAsync();
         }
 
         private async Task<Invoice> LoadInvoiceForGateChangeAsync(Guid orderId, Guid actorUserId, string roleSlug, CancellationToken ct)
         {
-            RequireStaff(roleSlug, out var isOwner);
-
-            var order = await _db.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.OrderId == orderId, ct)
-                ?? throw new NotFoundException("Order", orderId);
-
-            var tenant = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(x => x.TenantId == order.TenantId, ct)
-                ?? throw new NotFoundException("Tenant", order.TenantId);
-
-            await EnsureCountryInScopeAsync(isOwner, actorUserId, tenant.CountryId, ct);
-
-            return await _db.Invoices.FirstOrDefaultAsync(i => i.OrderId == orderId, ct)
-                ?? throw new DomainException("INVOICE_NOT_FOUND", "This order has no invoice yet — approve it first.");
+            var order = await LoadOrderForTransitionAsync(orderId, actorUserId, roleSlug, ct);
+            return await _db.Invoices.FirstOrDefaultAsync(i => i.OrderId == order.OrderId, ct)
+                ?? throw new DomainException("INVOICE_NOT_FOUND", "This order has no invoice yet — mark it Invoiced first.");
         }
 
         public async Task MarkInvoicePaidAsync(Guid orderId, Guid actorUserId, string roleSlug, CancellationToken ct)
         {
             var invoice = await LoadInvoiceForGateChangeAsync(orderId, actorUserId, roleSlug, ct);
             invoice.Status = "paid";
+
+            var order = await _db.Orders.FirstAsync(o => o.OrderId == orderId, ct);
+            order.PaymentStatus = OrderPaymentStatus.Paid;
+
+            // Paid is the end of the line for this order — there's no further
+            // manual gate for the user to clear, so auto-complete it instead
+            // of requiring a separate "Complete" click.
+            order.Status = OrderStatus.Completed;
+            order.CompletedBy = actorUserId;
+            order.CompletedAt = DateTime.UtcNow;
+
+            // "The final process" diagram, step 4->5: once paid, the order's
+            // single Agreement Line is auto-provisioned as a Subscription —
+            // same Qty as the order — instead of requiring a separate manual
+            // step on the Subscriptions screen. Skipped (not an error) if one
+            // already exists for this tenant+SKU, e.g. created manually
+            // beforehand or this call retried.
+            var alreadyProvisioned = await _db.TenantSubscriptions
+                .AnyAsync(x => x.TenantId == order.TenantId && x.SubscriptionId == order.PriceListItemId, ct);
+            if (!alreadyProvisioned)
+            {
+                var tenant = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(x => x.TenantId == order.TenantId, ct);
+
+                var sub = new TenantSubscription
+                {
+                    TenantId = order.TenantId,
+                    SubscriptionId = order.PriceListItemId,
+                    OrderId = order.OrderId,
+                    SubscriptionName = order.SkuName,
+                    TotalQty = (int)order.Quantity,
+                    UsedQty = 0,
+                    // TenantSubscription only tracks Monthly/Yearly cadence —
+                    // Order's own Quarterly/Half-Yearly frequencies collapse
+                    // to Yearly here (Term below still reflects the order's
+                    // real duration in months).
+                    Billing = order.BillingFrequency?.Equals("Monthly", StringComparison.OrdinalIgnoreCase) == true ? "Monthly" : "Yearly",
+                    Term = order.DurationMonths,
+                    Price = order.UnitPrice,
+                    StartDate = order.StartDate,
+                    // Admin Manual §7.4.1: "Start Date + Term -> System calculates Expiry Date".
+                    ExpiryDate = order.StartDate.AddMonths(order.DurationMonths),
+                    Status = "Active"
+                };
+                _db.TenantSubscriptions.Add(sub);
+
+                if (tenant is not null)
+                {
+                    await _audit.WriteAsync(actorUserId, null, "SUBSCRIPTION_ASSIGNED", null, null,
+                        $"{order.SkuName} assigned to {tenant.TenantName} ({sub.TotalQty} licenses) — auto-provisioned on payment", ct);
+                }
+            }
+
             await _db.SaveChangesAsync(ct);
         }
 
@@ -428,7 +593,22 @@ namespace TenantPortal.Infrastructure.Services
         {
             var invoice = await LoadInvoiceForGateChangeAsync(orderId, actorUserId, roleSlug, ct);
             invoice.CreditApprovedAt = DateTime.UtcNow;
+
+            var order = await _db.Orders.FirstAsync(o => o.OrderId == orderId, ct);
+            // Credit approval is the other terminal gate alongside payment —
+            // same reasoning as MarkInvoicePaidAsync, no further manual step needed.
+            order.Status = OrderStatus.Completed;
+            order.CompletedBy = actorUserId;
+            order.CompletedAt = DateTime.UtcNow;
+
             await _db.SaveChangesAsync(ct);
         }
+
+        public async Task<IReadOnlyList<TaxGroupDto>> GetTaxGroupsAsync(CancellationToken ct) =>
+            await _db.TaxGroups.AsNoTracking()
+                .Where(tg => tg.IsActive)
+                .OrderByDescending(tg => tg.CreatedAt)
+                .Select(tg => new TaxGroupDto { Id = tg.Id, Code = tg.Code, Name = tg.Name, Rate = tg.Rate, CountryId = tg.CountryId })
+                .ToListAsync(ct);
     }
 }

@@ -16,7 +16,12 @@ namespace TenantPortal.API.Controllers
     [ApiController]
     [Route("api/agreements")]
     [Authorize]
-    [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
+    // Role x Function matrix: "Manage agreements" = Yes/Yes/"View own
+    // tenant"/"View own tenant" — TenantAdmin/TenantUser are tier-admitted
+    // here but only ever hold the "agreement.view" permission (seeded
+    // TenantAdmin/TenantUser-only, no create/edit/delete/approve), so every
+    // mutating action below still 403s them via [RequirePermission].
+    [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin, RoleType.TenantAdmin, RoleType.TenantUser)]
     public class AgreementsController : ControllerBase
     {
         private readonly IAgreementsService _svc;
@@ -25,11 +30,20 @@ namespace TenantPortal.API.Controllers
         private Guid CurrentUserId => Guid.Parse(User.FindFirst("user_id")!.Value);
         private string RoleSlug => User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? "";
 
+        private Guid? CurrentTenantId
+        {
+            get
+            {
+                var raw = User.FindFirst("tenant_id")?.Value;
+                return Guid.TryParse(raw, out var v) ? v : null;
+            }
+        }
+
         [HttpGet]
         [RequirePermission("agreement", "view")]
         public async Task<IActionResult> List([FromQuery] AgreementQuery q, CancellationToken ct)
         {
-            var (total, rows) = await _svc.ListAsync(q, ct);
+            var (total, rows) = await _svc.ListAsync(q, CurrentTenantId, ct);
             return Ok(ApiListResponse<AgreementListItemDto>.Success(rows.ToList(), total, q.Page, q.PageSize));
         }
 
@@ -37,10 +51,20 @@ namespace TenantPortal.API.Controllers
         [RequirePermission("agreement", "view")]
         public async Task<IActionResult> GetById([FromRoute] Guid id, CancellationToken ct)
         {
-            var dto = await _svc.GetAsync(id, ct);
+            var dto = await _svc.GetAsync(id, CurrentTenantId, ct);
             return dto == null
                 ? NotFound(ApiResult.Failure("Agreement not found."))
                 : Ok(ApiResponse<AgreementListItemDto>.Success(dto));
+        }
+
+        // Suggested Agreement ID for the New Agreement form — same pattern
+        // as TenantsController.NextTenantCode — still editable before submit.
+        [HttpGet("next-code")]
+        [RequirePermission("agreement", "view")]
+        public async Task<IActionResult> NextAgreementCode(CancellationToken ct)
+        {
+            var code = await _svc.GenerateNextAgreementCodeAsync(ct);
+            return Ok(ApiResponse<string>.Success(code));
         }
 
         [HttpPost]
@@ -55,6 +79,7 @@ namespace TenantPortal.API.Controllers
             {
                 TenantId = form.TenantId,
                 VendorId = form.VendorId,
+                AgreementCode = form.AgreementCode ?? string.Empty,
                 ContractNumber = form.ContractNumber,
                 ContractType = form.ContractType,
                 StartDate = form.StartDate,

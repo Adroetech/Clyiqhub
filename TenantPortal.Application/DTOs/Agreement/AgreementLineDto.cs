@@ -17,6 +17,5 @@ namespace TenantPortal.Application.DTOs.Agreement
         public decimal Amount { get; set; }
         public string? PriceUnit { get; set; }
         public string Category { get; set; } = default!;
-        public string Status { get; set; } = default!;
     }
 }

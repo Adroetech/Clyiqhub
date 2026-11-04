@@ -3,8 +3,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TenantPortal.Domain.Entities
 {
-    // Standalone product/price catalog — intentionally separate from
-    // SubscriptionPlan (a tenant's assigned plan), not an extension of it.
+    // The "Price List" screen — standalone product/price catalog,
+    // intentionally separate from SubscriptionPlan. Also the SKU source
+    // Agreement Lines / Order Lines pick from (api/lookup/price-list-skus),
+    // vendor-scoped by Segment.
     [Table("PriceListItems", Schema = "dbo")]
     public class PriceListItem
     {
@@ -29,11 +31,14 @@ namespace TenantPortal.Domain.Entities
         [Required]
         public PriceListCategory Category { get; set; }
 
-        [Required]
-        public decimal PurchasePrice { get; set; }
-
+        // Per month, per user.
         [Required]
         public decimal SalesPrice { get; set; }
+
+        public Guid? CountryId { get; set; }
+
+        [MaxLength(10)]
+        public string? Currency { get; set; } // ISO code
 
         [Required]
         public PriceListStatus Status { get; set; } = PriceListStatus.Active;

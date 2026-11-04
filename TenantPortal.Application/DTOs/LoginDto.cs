@@ -21,6 +21,12 @@ namespace TenantPortal.Application.DTOs
         public string RoleName { get; set; } = default!;
         public int RoleType { get; set; }
         public Guid? TenantId { get; set; }
+
+        // module.process.action codes this user's role currently holds
+        // (same set [RequirePermission] checks server-side) — lets the
+        // frontend show/hide actions without guessing from RoleType alone.
+        // Empty on the OtpPending response (no real session yet).
+        public List<string> Permissions { get; set; } = new();
     }
 
     /// <summary>

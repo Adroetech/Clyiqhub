@@ -42,8 +42,8 @@ namespace TenantPortal.Infrastructure.Services
         public Task<IReadOnlyList<PlatformUserDto>> GetUsersAsync(CancellationToken ct)
             => _repo.GetUsersAsync(ct);
 
-        public Task<IReadOnlyList<int>> GetUserRolesAsync(Guid userId, CancellationToken ct)
-            => _repo.GetUserRoleIdsAsync(userId, ct);
+        public Task<int?> GetUserRoleAsync(Guid userId, CancellationToken ct)
+            => _repo.GetUserRoleIdAsync(userId, ct);
 
         public async Task<int> CreateRoleAsync(CreateRoleRequest req, Guid actorUserId, string actorRole, CancellationToken ct)
         {
@@ -62,44 +62,34 @@ namespace TenantPortal.Infrastructure.Services
             _cacheInvalidator.InvalidateRole(roleId); // permissions changed
         }
 
-        public async Task<UpdateResultDto> UpdateUserRolesAsync(
+        public async Task<UpdateResultDto> UpdateUserRoleAsync(
       Guid userId,
-      UpdateUserRolesRequest req,
+      UpdateUserRoleRequest req,
       Guid actorUserId,
       string actorRole,
       CancellationToken ct)
         {
             RequireOwner(actorRole);
 
-            if (req?.RoleIds == null)
-                throw new DomainException("INVALID_PAYLOAD", "RoleIds is required.");
+            if (req is null || req.RoleId <= 0)
+                throw new DomainException("INVALID_ROLE_ID", "RoleId is required and must be a positive integer.");
 
-            if (req.RoleIds.Any(x => x <= 0))
-                throw new DomainException("INVALID_ROLE_ID", "RoleIds must be positive integers.");
+            if (await _repo.GetRoleTypeAsync(req.RoleId, ct) is null)
+                throw new DomainException("INVALID_ROLE", "Role not found.");
 
-            // Requested roles (clean set)
-            var requested = req.RoleIds
-                .Distinct()
-                .OrderBy(x => x)
-                .ToArray();
-
-            // Existing roles from DB
-            var existing = (await _repo.GetUserRoleIdsAsync(userId, ct))
-                .Distinct()
-                .OrderBy(x => x)
-                .ToArray();
+            var existing = await _repo.GetUserRoleIdAsync(userId, ct);
 
             // If same => no DB update
-            if (requested.SequenceEqual(existing))
+            if (existing == req.RoleId)
             {
                 return new UpdateResultDto
                 {
                     Changed = false,
-                    Message = "No changes. User already has these roles."
+                    Message = "No change. User already has this role."
                 };
             }
 
-            await _repo.ReplaceUserRolesAsync(userId, requested, actorUserId, ct);
+            await _repo.ReplaceUserRoleAsync(userId, req.RoleId, actorUserId, ct);
             _cacheInvalidator.InvalidateUser(userId);
 
             // A role change must take effect immediately, not whenever the
@@ -109,7 +99,7 @@ namespace TenantPortal.Infrastructure.Services
             return new UpdateResultDto
             {
                 Changed = true,
-                Message = "User roles updated successfully."
+                Message = "User role updated successfully."
             };
         }
 

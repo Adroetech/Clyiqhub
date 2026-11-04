@@ -61,9 +61,6 @@ namespace TenantPortal.Domain.Entities
         [Required, MaxLength(50)]
         public string Category { get; set; } = default!;
 
-        [Required, MaxLength(20)]
-        public string Status { get; set; } = "Draft";
-
         public Guid CreatedBy { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

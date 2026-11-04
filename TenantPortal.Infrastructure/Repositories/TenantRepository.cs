@@ -86,7 +86,7 @@ public class TenantRepository : Repository<Tenant>, ITenantRepository
             q = q.Where(t => list.Contains(t.CountryId));
         }
 
-        return await q.OrderBy(t => t.TenantName).ToListAsync(ct);
+        return await q.OrderByDescending(t => t.CreatedAt).ToListAsync(ct);
     }
 
 

@@ -26,7 +26,10 @@
 
 
 
-            Task<IReadOnlyList<int>> GetUserRoleIdsAsync(Guid userId, CancellationToken ct);
+            // One role per user (SysUserInfo.RoleId is the single source of
+            // truth — SysUserRoleDetails is kept only as an audit trail, with
+            // a unique index on UserId guaranteeing at most one row).
+            Task<int?> GetUserRoleIdAsync(Guid userId, CancellationToken ct);
 
             Task<HashSet<string>> GetRolePermissionCodesAsync(int roleId, CancellationToken ct);
             // returns codes like module.process.action

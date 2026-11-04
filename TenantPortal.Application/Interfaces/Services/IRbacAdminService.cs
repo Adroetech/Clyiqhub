@@ -11,8 +11,8 @@ namespace TenantPortal.Application.Interfaces.Services
         Task<int> CreateRoleAsync(CreateRoleRequest req, Guid actorUserId, string actorRole, CancellationToken ct);
         Task UpdateRoleAsync(int roleId, UpdateRoleRequest req, Guid actorUserId, string actorRole, CancellationToken ct);
 
-        Task<IReadOnlyList<int>> GetUserRolesAsync(Guid userId, CancellationToken ct);
-        Task<UpdateResultDto> UpdateUserRolesAsync(Guid userId, UpdateUserRolesRequest req, Guid actorUserId, string actorRole, CancellationToken ct);
+        Task<int?> GetUserRoleAsync(Guid userId, CancellationToken ct);
+        Task<UpdateResultDto> UpdateUserRoleAsync(Guid userId, UpdateUserRoleRequest req, Guid actorUserId, string actorRole, CancellationToken ct);
 
         Task<Guid> CreateUserAsync(CreateUserRequest req, Guid actorUserId, string actorRole, CancellationToken ct);
     }

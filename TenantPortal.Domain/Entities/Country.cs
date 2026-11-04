@@ -21,6 +21,11 @@ namespace TenantPortal.Domain.Entities
         public Guid? RegionId { get; set; }
         public Region? Region { get; set; }
 
+        // Every list/dropdown in the app is ordered by this, newest first —
+        // backfilled to "now" for pre-existing rows via the migration's
+        // DEFAULT constraint.
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
         public ICollection<Tenant> Tenants { get; set; } = new List<Tenant>();
     }
 }

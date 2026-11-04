@@ -29,13 +29,24 @@ namespace TenantPortal.API.Controllers
         // /api/auth so it's never attached to ordinary API calls — never in
         // the JSON body or localStorage. Access token still goes in the body;
         // the frontend keeps it in memory only (see auth.service.ts).
+        //
+        // SameSite=None (not Strict/Lax): the Angular dev server
+        // (http://localhost:4201) and this API (https://localhost:7103)
+        // differ in scheme, so browsers treat them as cross-site under
+        // "schemeful same-site" even though both say "localhost" — Strict/Lax
+        // silently drop the cookie on every XHR from the frontend, including
+        // the silent refresh() each new tab/reload relies on (see
+        // app.config.ts's provideAppInitializer), which is exactly why a
+        // page that's been open stays logged in (access token still in
+        // memory) but a fresh tab bounces to /login. None requires Secure,
+        // already set below.
         private void SetRefreshCookie(string refreshToken, DateTime expiresAtUtc)
         {
             Response.Cookies.Append(RefreshCookieName, refreshToken, new CookieOptions
             {
                 HttpOnly = true,
                 Secure = true,
-                SameSite = SameSiteMode.Strict,
+                SameSite = SameSiteMode.None,
                 Expires = expiresAtUtc,
                 Path = "/api/auth"
             });

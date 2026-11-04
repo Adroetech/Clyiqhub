@@ -1,39 +1,49 @@
 using Microsoft.EntityFrameworkCore;
 using TenantPortal.Application.DTOs.PriceList;
 using TenantPortal.Application.Exceptions;
+using TenantPortal.Application.Interfaces;
 using TenantPortal.Application.Interfaces.Services;
 using TenantPortal.Domain.Entities;
 using TenantPortal.Infrastructure.Persistence;
 
 namespace TenantPortal.Infrastructure.Services
 {
-    // Admin Manual §8: default price per Subscription Plan + Country, used
-    // to auto-populate Unit Price during Order creation (and, per the
-    // manual, Tenant Subscription assignment). Backed by PriceListEntry /
-    // dbo.PriceList — distinct from the older PriceListItem product
-    // catalog this screen used to show.
     public class PriceListService : IPriceListService
     {
         private readonly AppDbContext _db;
-        public PriceListService(AppDbContext db) => _db = db;
+        private readonly IUnitOfWork _uow;
+
+        private static readonly string[] ValidBilling = { "Monthly", "Annual" };
+        private static readonly string[] ValidSegments = { "Microsoft", "Adroetech", "Adobe", "Taxilla" };
+        private static readonly string[] ValidCategories = { "ERP", "CRM", "Office", "Azure", "PowerPlatform", "BI", "AddOn" };
+        private static readonly string[] ValidStatuses = { "Active", "Inactive" };
+
+        public PriceListService(AppDbContext db, IUnitOfWork uow)
+        {
+            _db = db;
+            _uow = uow;
+        }
 
         private IQueryable<PriceListItemDto> ProjectedQuery() =>
-            from p in _db.PriceListEntries.AsNoTracking()
-            join plan in _db.SubscriptionPlans.AsNoTracking() on p.SubscriptionPlanId equals plan.Id into plans
-            from plan in plans.DefaultIfEmpty()
+            from p in _db.PriceListItems.AsNoTracking()
             join c in _db.Countries.AsNoTracking() on p.CountryId equals c.CountryId into countries
             from c in countries.DefaultIfEmpty()
             select new PriceListItemDto
             {
                 Id = p.Id,
-                SubscriptionPlanId = p.SubscriptionPlanId,
-                SubscriptionPlanName = plan != null ? plan.Name : null,
+                ProductId = p.ProductId,
+                Sku = p.Sku,
+                Description = p.Description,
+                BillingFrequency = p.BillingFrequency.ToString(),
+                Segment = p.Segment.ToString(),
+                Category = p.Category.ToString(),
+                SalesPrice = p.SalesPrice,
                 CountryId = p.CountryId,
                 CountryName = c != null ? c.Name : null,
                 Currency = p.Currency,
-                Price = p.Price,
-                EffectiveFrom = p.EffectiveFrom,
-                Status = (int)p.Status
+                Status = p.Status.ToString(),
+                CreatedAt = p.CreatedAt,
+                UpdatedAt = p.UpdatedAt
             };
 
         public async Task<(int total, IReadOnlyList<PriceListItemDto> rows)> ListAsync(PriceListQuery q, CancellationToken ct)
@@ -46,25 +56,19 @@ namespace TenantPortal.Infrastructure.Services
             if (!string.IsNullOrWhiteSpace(q.Search))
             {
                 var s = q.Search.Trim().ToLowerInvariant();
-                query = query.Where(p =>
-                    (p.SubscriptionPlanName != null && p.SubscriptionPlanName.ToLower().Contains(s)) ||
-                    (p.CountryName != null && p.CountryName.ToLower().Contains(s)));
+                query = query.Where(x => x.Sku.ToLower().Contains(s) || x.Description.ToLower().Contains(s) || x.ProductId.ToLower().Contains(s));
             }
 
-            if (!string.IsNullOrWhiteSpace(q.Status) && Enum.TryParse<PriceListEntryStatus>(q.Status, true, out var statusFilter))
-                query = query.Where(p => p.Status == (int)statusFilter);
+            if (!string.IsNullOrWhiteSpace(q.Segment))
+                query = query.Where(x => x.Segment == q.Segment);
 
-            if (q.SubscriptionPlanId.HasValue)
-                query = query.Where(p => p.SubscriptionPlanId == q.SubscriptionPlanId.Value);
-
-            if (q.CountryId.HasValue)
-                query = query.Where(p => p.CountryId == q.CountryId.Value);
+            if (!string.IsNullOrWhiteSpace(q.Status))
+                query = query.Where(x => x.Status == q.Status);
 
             var total = await query.CountAsync(ct);
 
             var rows = await query
-                .OrderBy(p => p.SubscriptionPlanName)
-                .ThenBy(p => p.CountryName)
+                .OrderByDescending(x => x.CreatedAt)
                 .Skip((q.Page - 1) * q.PageSize)
                 .Take(q.PageSize)
                 .ToListAsync(ct);
@@ -73,88 +77,106 @@ namespace TenantPortal.Infrastructure.Services
         }
 
         public async Task<PriceListItemDto?> GetAsync(Guid id, CancellationToken ct) =>
-            await ProjectedQuery().FirstOrDefaultAsync(p => p.Id == id, ct);
+            await ProjectedQuery().FirstOrDefaultAsync(x => x.Id == id, ct);
 
-        private async Task ValidateAsync(Guid subscriptionPlanId, Guid countryId, string currency, decimal price, Guid? excludeId, CancellationToken ct)
+        private static (PriceListBillingFrequency billing, PriceListSegment segment, PriceListCategory category, PriceListStatus status) Validate(
+            string sku, string description, string billing, string segment, string category, string status, decimal salesPrice)
         {
-            if (price < 0)
-                throw new DomainException("PRICE_INVALID", "Price cannot be negative.");
-            if (string.IsNullOrWhiteSpace(currency))
-                throw new DomainException("CURRENCY_REQUIRED", "Currency is required.");
+            if (string.IsNullOrWhiteSpace(sku))
+                throw new DomainException("SKU_REQUIRED", "SKU is required.");
+            if (string.IsNullOrWhiteSpace(description))
+                throw new DomainException("DESCRIPTION_REQUIRED", "Description is required.");
+            if (!ValidBilling.Contains(billing, StringComparer.OrdinalIgnoreCase))
+                throw new DomainException("INVALID_BILLING", "Billing Frequency must be Monthly or Annual.");
+            if (!ValidSegments.Contains(segment, StringComparer.OrdinalIgnoreCase))
+                throw new DomainException("INVALID_SEGMENT", "Segment must be one of Microsoft, Adroetech, Adobe, Taxilla.");
+            if (!ValidCategories.Contains(category, StringComparer.OrdinalIgnoreCase))
+                throw new DomainException("INVALID_CATEGORY", "Invalid category.");
+            if (!ValidStatuses.Contains(status, StringComparer.OrdinalIgnoreCase))
+                throw new DomainException("INVALID_STATUS", "Status must be Active or Inactive.");
+            if (salesPrice < 0)
+                throw new DomainException("INVALID_PRICE", "Sales Price cannot be negative.");
 
-            var planExists = await _db.SubscriptionPlans.AsNoTracking().AnyAsync(p => p.Id == subscriptionPlanId, ct);
-            if (!planExists)
-                throw new DomainException("SUBSCRIPTION_PLAN_NOT_FOUND", "Subscription plan not found.");
-
-            var countryExists = await _db.Countries.AsNoTracking().AnyAsync(c => c.CountryId == countryId, ct);
-            if (!countryExists)
-                throw new DomainException("COUNTRY_NOT_FOUND", "Country not found.");
-
-            // Admin Manual §8.4: "One Subscription Plan + One Region = One
-            // Price Record" — enforced here as one record per Plan+Country.
-            var duplicate = await _db.PriceListEntries.AsNoTracking()
-                .AnyAsync(p => p.SubscriptionPlanId == subscriptionPlanId && p.CountryId == countryId && (excludeId == null || p.Id != excludeId), ct);
-            if (duplicate)
-                throw new DomainException("PRICE_RECORD_EXISTS", "A price record already exists for this Subscription Plan and Country.");
+            return (
+                Enum.Parse<PriceListBillingFrequency>(billing, true),
+                Enum.Parse<PriceListSegment>(segment, true),
+                Enum.Parse<PriceListCategory>(category, true),
+                Enum.Parse<PriceListStatus>(status, true));
         }
 
-        public async Task<PriceListItemDto> CreateAsync(PriceListCreateRequest req, Guid userId, CancellationToken ct)
+        public async Task<PriceListItemDto> CreateAsync(PriceListCreateRequest req, Guid actorUserId, CancellationToken ct)
         {
-            await ValidateAsync(req.SubscriptionPlanId, req.CountryId, req.Currency, req.Price, excludeId: null, ct);
+            var (billing, segment, category, status) = Validate(
+                req.Sku, req.Description, req.BillingFrequency, req.Segment, req.Category, req.Status, req.SalesPrice);
 
-            var entry = new PriceListEntry
+            var skuExists = await _db.PriceListItems.AsNoTracking().AnyAsync(x => x.Sku == req.Sku.Trim(), ct);
+            if (skuExists)
+                throw new DomainException("SKU_EXISTS", "A price list item with this SKU already exists.");
+
+            var row = new PriceListItem
             {
                 Id = Guid.NewGuid(),
-                SubscriptionPlanId = req.SubscriptionPlanId,
+                ProductId = req.ProductId?.Trim() ?? req.Sku.Trim(),
+                Sku = req.Sku.Trim(),
+                Description = req.Description.Trim(),
+                BillingFrequency = billing,
+                Segment = segment,
+                Category = category,
+                SalesPrice = req.SalesPrice,
                 CountryId = req.CountryId,
-                Currency = req.Currency.Trim().ToUpperInvariant(),
-                Price = req.Price,
-                EffectiveFrom = req.EffectiveFrom.Date,
-                Status = req.Status,
-                CreatedBy = userId
+                Currency = string.IsNullOrWhiteSpace(req.Currency) ? null : req.Currency.Trim(),
+                Status = status,
+                CreatedBy = actorUserId,
+                CreatedAt = DateTime.UtcNow
             };
 
-            _db.PriceListEntries.Add(entry);
-            await _db.SaveChangesAsync(ct);
+            await _uow.Repository<PriceListItem>().AddAsync(row);
+            await _uow.CompleteAsync();
 
-            return await GetAsync(entry.Id, ct) ?? throw new NotFoundException("PriceListEntry", entry.Id);
+            return await GetAsync(row.Id, ct) ?? throw new InvalidOperationException("Just-created price list item not found.");
         }
 
-        public async Task<PriceListItemDto> UpdateAsync(Guid id, PriceListUpdateRequest req, Guid userId, CancellationToken ct)
+        public async Task<PriceListItemDto> UpdateAsync(Guid id, PriceListUpdateRequest req, Guid actorUserId, CancellationToken ct)
         {
-            var entry = await _db.PriceListEntries.FirstOrDefaultAsync(x => x.Id == id, ct)
-                ?? throw new NotFoundException("PriceListEntry", id);
+            var row = await _db.PriceListItems.FirstOrDefaultAsync(x => x.Id == id, ct)
+                ?? throw new NotFoundException("PriceListItem", id);
 
-            await ValidateAsync(req.SubscriptionPlanId, req.CountryId, req.Currency, req.Price, excludeId: id, ct);
+            var (billing, segment, category, status) = Validate(
+                req.Sku, req.Description, req.BillingFrequency, req.Segment, req.Category, req.Status, req.SalesPrice);
 
-            entry.SubscriptionPlanId = req.SubscriptionPlanId;
-            entry.CountryId = req.CountryId;
-            entry.Currency = req.Currency.Trim().ToUpperInvariant();
-            entry.Price = req.Price;
-            entry.EffectiveFrom = req.EffectiveFrom.Date;
-            entry.Status = req.Status;
+            var skuExists = await _db.PriceListItems.AsNoTracking().AnyAsync(x => x.Sku == req.Sku.Trim() && x.Id != id, ct);
+            if (skuExists)
+                throw new DomainException("SKU_EXISTS", "A price list item with this SKU already exists.");
 
-            await _db.SaveChangesAsync(ct);
+            row.ProductId = req.ProductId?.Trim() ?? req.Sku.Trim();
+            row.Sku = req.Sku.Trim();
+            row.Description = req.Description.Trim();
+            row.BillingFrequency = billing;
+            row.Segment = segment;
+            row.Category = category;
+            row.SalesPrice = req.SalesPrice;
+            row.CountryId = req.CountryId;
+            row.Currency = string.IsNullOrWhiteSpace(req.Currency) ? null : req.Currency.Trim();
+            row.Status = status;
+            row.UpdatedBy = actorUserId;
+            row.UpdatedAt = DateTime.UtcNow;
 
-            return await GetAsync(id, ct) ?? throw new NotFoundException("PriceListEntry", id);
+            await _uow.CompleteAsync();
+            return await GetAsync(id, ct) ?? throw new InvalidOperationException("Just-updated price list item not found.");
         }
 
         public async Task DeleteAsync(Guid id, CancellationToken ct)
         {
-            var entry = await _db.PriceListEntries.FirstOrDefaultAsync(x => x.Id == id, ct)
-                ?? throw new NotFoundException("PriceListEntry", id);
+            var row = await _db.PriceListItems.FirstOrDefaultAsync(x => x.Id == id, ct)
+                ?? throw new NotFoundException("PriceListItem", id);
 
-            _db.PriceListEntries.Remove(entry);
-            await _db.SaveChangesAsync(ct);
-        }
+            var inUse = await _db.AgreementLines.AsNoTracking().AnyAsync(l => l.PriceListItemId == id, ct)
+                || await _db.Orders.AsNoTracking().AnyAsync(o => o.PriceListItemId == id, ct);
+            if (inUse)
+                throw new DomainException("PRICE_LIST_ITEM_IN_USE", "This price list item is referenced by existing agreement or order lines and cannot be deleted.");
 
-        public async Task<PriceListLookupResultDto?> LookupAsync(Guid subscriptionPlanId, Guid countryId, CancellationToken ct)
-        {
-            var entry = await _db.PriceListEntries.AsNoTracking()
-                .Where(p => p.SubscriptionPlanId == subscriptionPlanId && p.CountryId == countryId && p.Status == PriceListEntryStatus.Active)
-                .FirstOrDefaultAsync(ct);
-
-            return entry == null ? null : new PriceListLookupResultDto { Price = entry.Price, Currency = entry.Currency };
+            _db.PriceListItems.Remove(row);
+            await _uow.CompleteAsync();
         }
     }
 }

@@ -15,8 +15,6 @@ namespace TenantPortal.API.Controllers
         private readonly ILookupRepository _repo;
         public LookupController(ILookupRepository repo) => _repo = repo;
 
-        private Guid CurrentUserId => Guid.Parse(User.FindFirst("user_id")!.Value);
-
         // GET /api/lookup/cities?countryId=<guid>
         [HttpGet("cities")]
         public async Task<IActionResult> Cities([FromQuery] Guid countryId, CancellationToken ct)
@@ -49,11 +47,6 @@ namespace TenantPortal.API.Controllers
             return Ok(language);
         }
 
-        // GET /api/lookup/subscription-plans
-        [HttpGet("subscription-plans")]
-        public async Task<IActionResult> SubscriptionPlans(CancellationToken ct)
-            => Ok(await _repo.GetSubscriptionPlansAsync(ct));
-
         // GET /api/lookup/segments
         [HttpGet("segments")]
         public async Task<IActionResult> Segments(CancellationToken ct)
@@ -83,16 +76,6 @@ namespace TenantPortal.API.Controllers
         [HttpGet("price-list-skus")]
         public async Task<IActionResult> PriceListSkus([FromQuery] Guid? vendorId, CancellationToken ct)
             => Ok(await _repo.GetPriceListSkusAsync(vendorId, ct));
-
-        // POST /api/lookup/subscription-plans — add a new plan to the catalog.
-        [HttpPost("subscription-plans")]
-        [RequireRoleType(RoleType.SuperAdmin, RoleType.Admin)]
-        [RequirePermission("subscription", "create")]
-        public async Task<IActionResult> CreateSubscriptionPlan([FromBody] CreateSubscriptionPlanRequest req, CancellationToken ct)
-        {
-            var plan = await _repo.CreateSubscriptionPlanAsync(req, CurrentUserId, ct);
-            return StatusCode(201, plan);
-        }
 
         // POST /api/lookup/countries — add a new country.
         [HttpPost("countries")]

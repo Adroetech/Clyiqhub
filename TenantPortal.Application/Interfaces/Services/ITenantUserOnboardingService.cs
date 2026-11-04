@@ -11,8 +11,8 @@ namespace TenantPortal.Application.Interfaces.Services
             Guid? actorTenantId,
             CancellationToken ct);
 
-        Task ApproveAsync(Guid userId, Guid actorUserId, string actorRole, CancellationToken ct);
+        Task ApproveAsync(Guid userId, Guid actorUserId, string actorRole, Guid? actorTenantId, CancellationToken ct);
 
-        Task RejectAsync(Guid userId, RejectUserRequest req, Guid actorUserId, string actorRole, CancellationToken ct);
+        Task RejectAsync(Guid userId, RejectUserRequest req, Guid actorUserId, string actorRole, Guid? actorTenantId, CancellationToken ct);
     }
 }

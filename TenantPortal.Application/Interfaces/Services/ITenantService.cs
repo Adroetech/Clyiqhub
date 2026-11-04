@@ -8,7 +8,7 @@ namespace TenantPortal.Application.Interfaces.Services
         Task<TenantResponse> CreateAsync(TenantCreateRequest req, Guid currentUserId, string roleSlug, CancellationToken ct);
         Task<string> GenerateNextTenantCodeAsync(CancellationToken ct);
 
-        Task<TenantResponse> UpdateAsync(Guid tenantId, TenantUpdateRequest req, Guid currentUserId, CancellationToken ct);
+        Task<TenantResponse> UpdateAsync(Guid tenantId, TenantUpdateRequest req, Guid currentUserId, CancellationToken ct, bool restrictToTenantAdminFields = false);
 
         // Draft -> InReview, editing the same record in one call (see
         // TenantService.ResubmitAsync for why this must not be a Create).
@@ -16,6 +16,7 @@ namespace TenantPortal.Application.Interfaces.Services
 
         Task<(int total, IReadOnlyList<TenantListItemDto> rows)> ListAsync(
             TenantListQuery q,
+            Guid? callerTenantId,
             CancellationToken ct);
 
         Task<TenantResponse?> GetAsync(Guid tenantId, CancellationToken ct);

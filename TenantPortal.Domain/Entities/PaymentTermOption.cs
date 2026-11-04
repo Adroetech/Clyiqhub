@@ -22,5 +22,10 @@ namespace TenantPortal.Domain.Entities
         public string Name { get; set; } = default!; // e.g. "Net 30"
 
         public bool IsActive { get; set; } = true;
+
+        // Every list/dropdown in the app is ordered by this, newest first —
+        // backfilled to "now" for pre-existing rows via the migration's
+        // DEFAULT constraint.
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

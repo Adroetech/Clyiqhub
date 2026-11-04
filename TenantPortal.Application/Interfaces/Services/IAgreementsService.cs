@@ -9,8 +9,13 @@ namespace TenantPortal.Application.Interfaces.Services
     // section.
     public interface IAgreementsService
     {
-        Task<(int total, IReadOnlyList<AgreementListItemDto> rows)> ListAsync(AgreementQuery q, CancellationToken ct);
-        Task<AgreementListItemDto?> GetAsync(Guid id, CancellationToken ct);
+        Task<(int total, IReadOnlyList<AgreementListItemDto> rows)> ListAsync(AgreementQuery q, Guid? callerTenantId, CancellationToken ct);
+        Task<AgreementListItemDto?> GetAsync(Guid id, Guid? callerTenantId, CancellationToken ct);
+
+        // Suggested value for the Create form's "Agreement ID" field — same
+        // pattern as ITenantService.GenerateNextTenantCodeAsync.
+        Task<string> GenerateNextAgreementCodeAsync(CancellationToken ct);
+
         Task<Guid> CreateAsync(AgreementCreateRequest req, Stream documentStream, string documentFileName, Guid actorUserId, string roleSlug, CancellationToken ct);
         Task UpdateAsync(Guid id, AgreementUpdateRequest req, Guid actorUserId, string roleSlug, CancellationToken ct);
         Task DeleteAsync(Guid id, Guid actorUserId, string roleSlug, CancellationToken ct);
