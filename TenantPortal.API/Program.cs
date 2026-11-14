@@ -135,13 +135,15 @@ public partial class Program
         });
 
         // -----------------------
-        // CORS (frontend dev servers)
+        // CORS (frontend dev servers + the production frontend, which is a
+        // separate origin from the API — hub.clyiq.com has no reverse proxy
+        // to api.clyiq.com)
         // -----------------------
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("Frontend", policy =>
             {
-                policy.WithOrigins("http://localhost:5173", "https://localhost:5173", "http://localhost:4200", "https://localhost:4200", "http://localhost:4201", "https://localhost:4201")
+                policy.WithOrigins("http://localhost:5173", "https://localhost:5173", "http://localhost:4200", "https://localhost:4200", "http://localhost:4201", "https://localhost:4201", "https://hub.clyiq.com")
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials();
