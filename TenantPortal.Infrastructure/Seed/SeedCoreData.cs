@@ -754,13 +754,22 @@ namespace TenantPortal.Infrastructure.Seed
         // side effect.
         private static async Task RemoveOrphanProcessPermissionAsync(AppDbContext db, string processSlug, string permSlug)
         {
-            var combo = await (
-                from pp in db.SysProcessPermissions
-                join p in db.SysProcesses.AsNoTracking() on pp.ProcessId equals p.Id
-                join a in db.SysPermissions.AsNoTracking() on pp.PermissionId equals a.Id
-                where p.Slug == processSlug && a.Slug == permSlug
-                select pp
-            ).FirstOrDefaultAsync();
+            // Two scalar id lookups instead of a join, so the SysProcessPermission
+            // query below stays a plain tracked query and Remove() doesn't collide
+            // with an already-tracked instance of the same row from earlier in
+            // this seeding run (e.g. AddCombo on a freshly-initialized database).
+            var processId = await db.SysProcesses.AsNoTracking()
+                .Where(p => p.Slug == processSlug)
+                .Select(p => (int?)p.Id)
+                .FirstOrDefaultAsync();
+            var permissionId = await db.SysPermissions.AsNoTracking()
+                .Where(a => a.Slug == permSlug)
+                .Select(a => (int?)a.Id)
+                .FirstOrDefaultAsync();
+            if (processId is null || permissionId is null) return;
+
+            var combo = await db.SysProcessPermissions
+                .FirstOrDefaultAsync(pp => pp.ProcessId == processId && pp.PermissionId == permissionId);
             if (combo is null) return;
 
             var grants = await db.SysRolePermissions.Where(rp => rp.ProcessPermissionId == combo.Id).ToListAsync();
